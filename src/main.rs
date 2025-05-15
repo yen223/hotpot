@@ -2,6 +2,7 @@ use base32::{Alphabet, decode};
 use clap::{Parser, Subcommand};
 use hmac::{Hmac, Mac};
 use keyring::Entry;
+use rpassword::prompt_password;
 use serde::{Deserialize, Serialize};
 use sha1::Sha1;
 use std::error::Error;
@@ -44,6 +45,12 @@ impl From<serde_json::Error> for AppError {
     }
 }
 
+impl From<std::io::Error> for AppError {
+    fn from(err: std::io::Error) -> Self {
+        Self::new(format!("IO error: {}", err))
+    }
+}
+
 #[derive(Parser)]
 #[command(name = "hotpot")]
 #[command(about = "A simple CLI for TOTP-based 2FA", long_about = None)]
@@ -58,8 +65,6 @@ enum Commands {
     Add {
         /// Account name (e.g., email or service identifier)
         name: String,
-        /// Base32 encoded secret
-        secret: String,
     },
     /// Generate code for an account
     Code {
@@ -174,9 +179,10 @@ fn main() {
     let cli = Cli::parse();
 
     let result = match &cli.command {
-        Commands::Add { name, secret } => {
-            save_account(name, secret).map(|_| println!("Added account: {}", name))
-        }
+        Commands::Add { name } => match prompt_password("Enter the Base32 secret: ") {
+            Ok(secret) => save_account(name, &secret).map(|_| println!("Added account: {}", name)),
+            Err(err) => Err(AppError::new(err.to_string())),
+        },
         Commands::Code { name } => get_account(name).and_then(|account| {
             generate_totp(&account.secret).map(|code| {
                 println!("Code for {}: {:06}", name, code);

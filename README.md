@@ -22,12 +22,15 @@ cargo build --release
 ### Add a new account
 
 ```bash
-hotpot add <account-name> <base32-secret>
+hotpot add <account-name>
 ```
+
+You will be prompted to enter the Base32 secret securely.
 
 Example:
 ```bash
-hotpot add github JBSWY3DPEHPK3PXP
+hotpot add github
+Enter the Base32 secret: ********
 ```
 
 ### Generate a code
@@ -78,6 +81,7 @@ The binary will be available at `target/release/hotpot`
 - base32: RFC 4648 base32 encoding/decoding
 - hmac & sha1: TOTP algorithm implementation
 - serde & serde_json: Data serialization
+- rpassword: Secure password/secret input
 
 ## License
 
