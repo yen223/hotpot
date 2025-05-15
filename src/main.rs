@@ -78,6 +78,13 @@ enum Commands {
         /// Account name to delete
         name: String,
     },
+    /// Export account as QR code
+    #[command(arg_required_else_help = true)]
+    ExportQr {
+        /// Account name to export
+        #[arg(long)]
+        name: String,
+    },
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -175,6 +182,39 @@ fn handle_error(err: AppError) {
     }
 }
 
+fn generate_otpauth_uri(name: &str, secret: &str) -> String {
+    let label = format!("hotpot:{}", name);
+    let params = vec![
+        ("secret", secret),
+        ("issuer", "hotpot"),
+        ("algorithm", "SHA1"),
+        ("digits", "6"),
+        ("period", "30"),
+    ];
+    
+    let query = params.iter()
+        .map(|(k, v)| format!("{}={}", k, v))
+        .collect::<Vec<_>>()
+        .join("&");
+    
+    format!("otpauth://totp/{}?{}", label, query)
+}
+
+fn export_qr_code(name: &str, secret: &str) -> Result<(), AppError> {
+    use qrcode::{QrCode, render::unicode};
+
+    let uri = generate_otpauth_uri(name, secret);
+    println!("Generated URI: {}", uri);
+    let code = QrCode::new(uri.as_bytes()).map_err(|e| AppError::new(format!("QR code error: {}", e)))?;
+    let qr_string = code.render::<unicode::Dense1x2>()
+        .dark_color(unicode::Dense1x2::Light)
+        .light_color(unicode::Dense1x2::Dark)
+        .build();
+    
+    println!("\n{}", qr_string);
+    Ok(())
+}
+
 fn main() {
     let cli = Cli::parse();
 
@@ -204,6 +244,11 @@ fn main() {
         },
         Commands::Delete { name } => {
             delete_account(name).map(|_| println!("Deleted account: {}", name))
+        },
+        Commands::ExportQr { name } => {
+            get_account(name).and_then(|account| {
+                export_qr_code(name, &account.secret)
+            })
         }
     };
 
