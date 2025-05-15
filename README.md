@@ -14,7 +14,7 @@ This was largely vibe-coded, so use at your own risk!
 ## Installation
 
 ```bash
-cargo install hotpot
+cargo build --release
 ```
 
 ## Usage
