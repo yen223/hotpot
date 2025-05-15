@@ -1,5 +1,5 @@
 [package]
-name = "authy-replacement"
+name = "hotpot"
 version = "0.1.0"
 edition = "2024"
 
@@ -11,3 +11,4 @@ directories = "4.0"
 base32 = "0.4"
 hmac = "0.12"
 sha1 = "0.10"
+keyring = "2.0"

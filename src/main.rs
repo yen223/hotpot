@@ -1,14 +1,51 @@
-use clap::{Parser, Subcommand};
-use serde::{Deserialize, Serialize};
-use std::fs;
-use std::path::PathBuf;
 use base32::{Alphabet, decode};
+use clap::{Parser, Subcommand};
 use hmac::{Hmac, Mac};
+use keyring::Entry;
+use serde::{Deserialize, Serialize};
 use sha1::Sha1;
+use std::error::Error;
+use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+const SERVICE_NAME: &str = "hotpot";
+const STORAGE_KEY: &str = "_hotpot_storage";
+
+#[derive(Debug)]
+pub struct AppError {
+    message: String,
+}
+
+impl AppError {
+    fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+        }
+    }
+}
+
+impl fmt::Display for AppError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl Error for AppError {}
+
+impl From<keyring::Error> for AppError {
+    fn from(err: keyring::Error) -> Self {
+        Self::new(format!("Keyring error: {}", err))
+    }
+}
+
+impl From<serde_json::Error> for AppError {
+    fn from(err: serde_json::Error) -> Self {
+        Self::new(format!("Serialization error: {}", err))
+    }
+}
+
 #[derive(Parser)]
-#[command(name = "authy-replacement")]
+#[command(name = "hotpot")]
 #[command(about = "A simple CLI for TOTP-based 2FA", long_about = None)]
 struct Cli {
     #[command(subcommand)]
@@ -31,75 +68,141 @@ enum Commands {
     },
     /// List all configured accounts
     List,
+    /// Delete an account
+    Delete {
+        /// Account name to delete
+        name: String,
+    },
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Default)]
+struct Storage {
+    accounts: Vec<Account>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
 struct Account {
     name: String,
     secret: String,
 }
 
+fn get_storage() -> Result<Storage, AppError> {
+    let entry = Entry::new(SERVICE_NAME, STORAGE_KEY).map_err(AppError::from)?;
+
+    match entry.get_password() {
+        Ok(data) => Ok(serde_json::from_str(&data)?),
+        Err(keyring::Error::NoEntry) => Ok(Storage::default()),
+        Err(e) => Err(AppError::from(e)),
+    }
+}
+
+fn save_storage(storage: &Storage) -> Result<(), AppError> {
+    let data = serde_json::to_string(storage)?;
+    Entry::new(SERVICE_NAME, STORAGE_KEY)?
+        .set_password(&data)
+        .map_err(AppError::from)
+}
+
+fn save_account(name: &str, secret: &str) -> Result<(), AppError> {
+    let mut storage = get_storage()?;
+    if storage.accounts.iter().any(|a| a.name == name) {
+        return Err(AppError::new(format!("Account '{}' already exists", name)));
+    }
+    storage.accounts.push(Account {
+        name: name.to_string(),
+        secret: secret.to_string(),
+    });
+    storage.accounts.sort_by(|a, b| a.name.cmp(&b.name));
+    save_storage(&storage)
+}
+
+fn get_account(name: &str) -> Result<Account, AppError> {
+    let storage = get_storage()?;
+    storage
+        .accounts
+        .iter()
+        .find(|a| a.name == name)
+        .cloned()
+        .ok_or_else(|| AppError::new(format!("Account '{}' not found", name)))
+}
+
+fn delete_account(name: &str) -> Result<(), AppError> {
+    let mut storage = get_storage()?;
+    let initial_len = storage.accounts.len();
+    storage.accounts.retain(|a| a.name != name);
+    if storage.accounts.len() == initial_len {
+        return Err(AppError::new(format!("Account '{}' not found", name)));
+    }
+    save_storage(&storage)
+}
+
+fn generate_totp(secret: &str) -> Result<u32, AppError> {
+    let secret_bytes = match decode(Alphabet::RFC4648 { padding: false }, secret) {
+        Some(bytes) => bytes,
+        None => {
+            return Err(AppError::new("Bytes could not be decoded"));
+        }
+    };
+
+    let duration = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("System time is before Unix epoch");
+    let counter = duration.as_secs() / 30;
+
+    let mut mac =
+        Hmac::<Sha1>::new_from_slice(&secret_bytes).expect("HMAC can take key of any size");
+    mac.update(&counter.to_be_bytes());
+    let result = mac.finalize().into_bytes();
+
+    let offset = (result[19] & 0xf) as usize;
+    let binary = ((u32::from(result[offset]) & 0x7f) << 24)
+        | ((u32::from(result[offset + 1]) & 0xff) << 16)
+        | ((u32::from(result[offset + 2]) & 0xff) << 8)
+        | (u32::from(result[offset + 3]) & 0xff);
+
+    Ok(binary % 1_000_000)
+}
+
+fn handle_error(err: AppError) {
+    eprintln!("Error: {}", err);
+    if let Some(source) = err.source() {
+        eprintln!("Caused by: {}", source);
+    }
+}
+
 fn main() {
     let cli = Cli::parse();
-    let data_dir = directories::ProjectDirs::from("com", "example", "authy-replacement")
-        .expect("Cannot determine data directory")
-        .data_dir()
-        .to_path_buf();
 
-    fs::create_dir_all(&data_dir).expect("Failed to create data directory");
-    let config_file = data_dir.join("accounts.json");
-
-    match &cli.command {
+    let result = match &cli.command {
         Commands::Add { name, secret } => {
-            let mut accounts = load_accounts(&config_file);
-            accounts.push(Account {
-                name: name.clone(),
-                secret: secret.clone(),
-            });
-            save_accounts(&config_file, &accounts);
-            println!("Added account: {}", name);
+            save_account(name, secret).map(|_| println!("Added account: {}", name))
         }
-        Commands::Code { name } => {
-            let accounts = load_accounts(&config_file);
-            if let Some(account) = accounts.iter().find(|a| &a.name == name) {
-                let secret_bytes = decode(Alphabet::RFC4648 { padding: false }, &account.secret)
-                    .expect("Failed to decode base32 secret");
-                let code = {
-                    let duration = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-                    let counter = duration / 30;
-                    let mut mac = Hmac::<Sha1>::new_from_slice(&secret_bytes).expect("HMAC can take key");
-                    mac.update(&counter.to_be_bytes());
-                    let result = mac.finalize().into_bytes();
-                    let offset = (result[19] & 0xf) as usize;
-                    let binary = ((u32::from(result[offset]) & 0x7f) << 24)
-                        | ((u32::from(result[offset + 1]) & 0xff) << 16)
-                        | ((u32::from(result[offset + 2]) & 0xff) << 8)
-                        | (u32::from(result[offset + 3]) & 0xff);
-                    binary % 1_000_000
-                };
+        Commands::Code { name } => get_account(name).and_then(|account| {
+            generate_totp(&account.secret).map(|code| {
                 println!("Code for {}: {:06}", name, code);
-            } else {
-                eprintln!("Account not found: {}", name);
+            })
+        }),
+        Commands::List => match get_storage() {
+            Ok(storage) => {
+                if storage.accounts.is_empty() {
+                    println!("No accounts configured");
+                } else {
+                    println!("Configured accounts:");
+                    for account in storage.accounts {
+                        println!("  {}", account.name);
+                    }
+                }
+                Ok(())
             }
+            Err(e) => Err(e),
+        },
+        Commands::Delete { name } => {
+            delete_account(name).map(|_| println!("Deleted account: {}", name))
         }
-        Commands::List => {
-            let accounts = load_accounts(&config_file);
-            for account in accounts {
-                println!("{}", account.name);
-            }
-        }
-    }
-}
+    };
 
-fn load_accounts(path: &PathBuf) -> Vec<Account> {
-    if let Ok(data) = fs::read_to_string(path) {
-        serde_json::from_str(&data).unwrap_or_default()
-    } else {
-        Vec::new()
+    if let Err(err) = result {
+        handle_error(err);
+        std::process::exit(1);
     }
-}
-
-fn save_accounts(path: &PathBuf, accounts: &Vec<Account>) {
-    let data = serde_json::to_string_pretty(accounts).expect("Failed to serialize accounts");
-    fs::write(path, data).expect("Failed to write accounts file");
 }
