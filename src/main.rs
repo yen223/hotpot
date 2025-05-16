@@ -1,5 +1,10 @@
 use base32::{Alphabet, decode};
 use clap::{Parser, Subcommand};
+use crossterm::{
+    cursor::MoveTo,
+    execute,
+    terminal::{Clear, ClearType},
+};
 use hmac::{Hmac, Mac};
 use keyring::Entry;
 use rpassword::prompt_password;
@@ -7,7 +12,9 @@ use serde::{Deserialize, Serialize};
 use sha1::Sha1;
 use std::error::Error;
 use std::fmt;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::io::{self, Write};
+use std::thread;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const SERVICE_NAME: &str = "hotpot";
 const STORAGE_KEY: &str = "_hotpot_storage";
@@ -85,6 +92,8 @@ enum Commands {
         #[arg(long)]
         name: String,
     },
+    /// Watch and continuously update codes for all accounts
+    Watch,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -106,10 +115,18 @@ struct Account {
     period: u32,
 }
 
-fn default_issuer() -> String { "hotpot".to_string() }
-fn default_algorithm() -> String { "SHA1".to_string() }
-fn default_digits() -> u32 { 6 }
-fn default_period() -> u32 { 30 }
+fn default_issuer() -> String {
+    "hotpot".to_string()
+}
+fn default_algorithm() -> String {
+    "SHA1".to_string()
+}
+fn default_digits() -> u32 {
+    6
+}
+fn default_period() -> u32 {
+    30
+}
 
 impl Account {
     fn new(name: String, secret: String) -> Self {
@@ -134,12 +151,13 @@ impl Account {
             ("digits", &digits),
             ("period", &period),
         ];
-        
-        let query = params.iter()
+
+        let query = params
+            .iter()
             .map(|(k, v)| format!("{}={}", k, v))
             .collect::<Vec<_>>()
             .join("&");
-        
+
         format!("otpauth://totp/{}?{}", label, query)
     }
 }
@@ -166,7 +184,9 @@ fn save_account(name: &str, secret: &str) -> Result<(), AppError> {
     if storage.accounts.iter().any(|a| a.name == name) {
         return Err(AppError::new(format!("Account '{}' already exists", name)));
     }
-    storage.accounts.push(Account::new(name.to_string(), secret.to_string()));
+    storage
+        .accounts
+        .push(Account::new(name.to_string(), secret.to_string()));
     storage.accounts.sort_by(|a, b| a.name.cmp(&b.name));
     save_storage(&storage)
 }
@@ -203,8 +223,9 @@ fn generate_totp(account: &Account) -> Result<u32, AppError> {
     let counter = duration.as_secs() / u64::from(account.period);
 
     let mut mac = match account.algorithm.as_str() {
-        "SHA1" => Hmac::<Sha1>::new_from_slice(&secret_bytes)
-            .expect("HMAC can take key of any size"),
+        "SHA1" => {
+            Hmac::<Sha1>::new_from_slice(&secret_bytes).expect("HMAC can take key of any size")
+        }
         _ => return Err(AppError::new("Unsupported algorithm")), // Add support for SHA256/SHA512 if needed
     };
 
@@ -237,14 +258,70 @@ fn export_qr_code(name: &str, secret: &str) -> Result<(), AppError> {
 
     let uri = generate_otpauth_uri(name, secret);
     println!("Generated URI: {}", uri);
-    let code = QrCode::new(uri.as_bytes()).map_err(|e| AppError::new(format!("QR code error: {}", e)))?;
-    let qr_string = code.render::<unicode::Dense1x2>()
+    let code =
+        QrCode::new(uri.as_bytes()).map_err(|e| AppError::new(format!("QR code error: {}", e)))?;
+    let qr_string = code
+        .render::<unicode::Dense1x2>()
         .dark_color(unicode::Dense1x2::Light)
         .light_color(unicode::Dense1x2::Dark)
         .build();
-    
+
     println!("\n{}", qr_string);
     Ok(())
+}
+
+fn watch_codes() -> Result<(), AppError> {
+    let mut stdout = io::stdout();
+    execute!(stdout, Clear(ClearType::All))
+        .map_err(|e| AppError::new(format!("Terminal error: {}", e)))?;
+    let storage = get_storage()?;
+    
+    if storage.accounts.is_empty() {
+        println!("No accounts configured");
+        return Ok(());
+    }
+
+    // Calculate maximum width for name column
+    let max_name_width = storage.accounts.iter()
+        .map(|a| a.name.len())
+        .max()
+        .unwrap_or(0);
+
+    loop {
+        execute!(stdout, MoveTo(0, 0))
+            .map_err(|e| AppError::new(format!("Terminal error: {}", e)))?;
+        println!("Watching TOTP codes (press Ctrl+C to exit):\n");
+
+        // Print table header
+        println!("┌─{}─┬─{}─┐", "─".repeat(max_name_width), "─".repeat(6));
+        println!("│ {:<width$} │ {:<6} │", "Account", "Code", width = max_name_width);
+        println!("├─{}─┼─{}─┤", "─".repeat(max_name_width), "─".repeat(6));
+
+        for account in &storage.accounts {
+            match generate_totp(account) {
+                Ok(code) => println!(
+                    "│ {:<width$} │ {:0>6} │",
+                    account.name,
+                    code,
+                    width = max_name_width
+                ),
+                Err(e) => println!(
+                    "│ {:<width$} │ ERR:{} │",
+                    account.name,
+                    e.message.chars().take(3).collect::<String>(),
+                    width = max_name_width
+                ),
+            }
+        }
+
+        // Print table footer
+        println!("└─{}─┴─{}─┘", "─".repeat(max_name_width), "─".repeat(6));
+
+        stdout
+            .flush()
+            .map_err(|e| AppError::new(format!("Terminal error: {}", e)))?;
+        thread::sleep(Duration::from_secs(1));
+    }
 }
 
 fn main() {
@@ -257,7 +334,12 @@ fn main() {
         },
         Commands::Code { name } => get_account(name).and_then(|account| {
             generate_totp(&account).map(|code| {
-                println!("Code for {}: {:0width$}", name, code, width = account.digits as usize);
+                println!(
+                    "Code for {}: {:0width$}",
+                    name,
+                    code,
+                    width = account.digits as usize
+                );
             })
         }),
         Commands::List => match get_storage() {
@@ -276,12 +358,11 @@ fn main() {
         },
         Commands::Delete { name } => {
             delete_account(name).map(|_| println!("Deleted account: {}", name))
-        },
-        Commands::ExportQr { name } => {
-            get_account(name).and_then(|account| {
-                export_qr_code(name, &account.secret)
-            })
         }
+        Commands::ExportQr { name } => {
+            get_account(name).and_then(|account| export_qr_code(name, &account.secret))
+        }
+        Commands::Watch => watch_codes(),
     };
 
     if let Err(err) = result {
