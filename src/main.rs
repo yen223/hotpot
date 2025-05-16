@@ -1,9 +1,11 @@
 use base32::{Alphabet, decode};
 use clap::{Parser, Subcommand};
 use crossterm::{
-    cursor::MoveTo,
+    cursor::{Hide, MoveTo, Show},
+    event::{Event, KeyCode, KeyEvent, poll},
     execute,
-    terminal::{Clear, ClearType},
+    style::{Color, SetForegroundColor},
+    terminal::{Clear, ClearType, size},
 };
 use hmac::{Hmac, Mac};
 use keyring::Entry;
@@ -13,7 +15,6 @@ use sha1::Sha1;
 use std::error::Error;
 use std::fmt;
 use std::io::{self, Write};
-use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const SERVICE_NAME: &str = "hotpot";
@@ -272,29 +273,56 @@ fn export_qr_code(name: &str, secret: &str) -> Result<(), AppError> {
 
 fn watch_codes() -> Result<(), AppError> {
     let mut stdout = io::stdout();
-    execute!(stdout, Clear(ClearType::All))
+    execute!(stdout, Clear(ClearType::All), Hide)
         .map_err(|e| AppError::new(format!("Terminal error: {}", e)))?;
     let storage = get_storage()?;
-    
+
     if storage.accounts.is_empty() {
         println!("No accounts configured");
+        execute!(stdout, Show)?;
         return Ok(());
     }
 
     // Calculate maximum width for name column
-    let max_name_width = storage.accounts.iter()
+    let max_name_width = storage
+        .accounts
+        .iter()
         .map(|a| a.name.len())
         .max()
         .unwrap_or(0);
 
+    let (_, term_height) = size().map_err(|e| AppError::new(format!("Terminal error: {}", e)))?;
+
     loop {
+        if poll(Duration::from_millis(100))? {
+            if let Event::Key(KeyEvent {
+                code: KeyCode::Char('q'),
+                ..
+            }) = crossterm::event::read()?
+            {
+                execute!(stdout, Show)?;
+                return Ok(());
+            }
+        }
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("Time went backwards");
+        let secs_until_next_30 = 30 - (now.as_secs() % 30);
+        let progress_percent = ((30 - secs_until_next_30) as f32 / 30.0 * 100.0) as u32;
+
         execute!(stdout, MoveTo(0, 0))
             .map_err(|e| AppError::new(format!("Terminal error: {}", e)))?;
-        println!("Watching TOTP codes (press Ctrl+C to exit):\n");
+        println!("Watching TOTP codes (press 'q' to exit):\n");
 
         // Print table header
         println!("┌─{}─┬─{}─┐", "─".repeat(max_name_width), "─".repeat(6));
-        println!("│ {:<width$} │ {:<6} │", "Account", "Code", width = max_name_width);
+        println!(
+            "│ {:<width$} │ {:<6} │",
+            "Account",
+            "Code",
+            width = max_name_width
+        );
         println!("├─{}─┼─{}─┤", "─".repeat(max_name_width), "─".repeat(6));
 
         for account in &storage.accounts {
@@ -316,11 +344,26 @@ fn watch_codes() -> Result<(), AppError> {
 
         // Print table footer
         println!("└─{}─┴─{}─┘", "─".repeat(max_name_width), "─".repeat(6));
+        println!();
+
+        // Draw progress bar at the bottom of the terminal
+        execute!(stdout, MoveTo(0, term_height - 2), Clear(ClearType::CurrentLine))?;
+        let bar_width = 50;
+        let filled = (progress_percent as f32 / 100.0 * bar_width as f32) as usize;
+        let empty = bar_width - filled;
+
+        execute!(stdout, SetForegroundColor(Color::Green))?;
+        print!(
+            "[{}{}] {:2}s",
+            "=".repeat(filled),
+            " ".repeat(empty),
+            secs_until_next_30
+        );
+        execute!(stdout, SetForegroundColor(Color::Reset))?;
 
         stdout
             .flush()
             .map_err(|e| AppError::new(format!("Terminal error: {}", e)))?;
-        thread::sleep(Duration::from_secs(1));
     }
 }
 
