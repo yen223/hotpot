@@ -2,11 +2,13 @@ use base32::{Alphabet, decode};
 use clap::{Parser, Subcommand};
 use crossterm::{
     cursor::{Hide, MoveTo, Show},
-    event::{Event, KeyCode, KeyEvent, poll},
+    event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
     execute,
     style::{Color, SetForegroundColor},
     terminal::{Clear, ClearType, size},
 };
+use fuzzy_matcher::skim::SkimMatcherV2;
+use fuzzy_matcher::FuzzyMatcher;
 use hmac::{Hmac, Mac};
 use keyring::Entry;
 use rpassword::prompt_password;
@@ -15,7 +17,7 @@ use sha1::Sha1;
 use std::error::Error;
 use std::fmt;
 use std::io::{self, Write};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const SERVICE_NAME: &str = "hotpot";
 const STORAGE_KEY: &str = "_hotpot_storage";
@@ -95,6 +97,8 @@ enum Commands {
     },
     /// Watch and continuously update codes for all accounts
     Watch,
+    /// Fuzzy find an account and show its code
+    Find,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -294,17 +298,6 @@ fn watch_codes() -> Result<(), AppError> {
     let (_, term_height) = size().map_err(|e| AppError::new(format!("Terminal error: {}", e)))?;
 
     loop {
-        if poll(Duration::from_millis(100))? {
-            if let Event::Key(KeyEvent {
-                code: KeyCode::Char('q'),
-                ..
-            }) = crossterm::event::read()?
-            {
-                execute!(stdout, Show)?;
-                return Ok(());
-            }
-        }
-
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards");
@@ -313,7 +306,7 @@ fn watch_codes() -> Result<(), AppError> {
 
         execute!(stdout, MoveTo(0, 0))
             .map_err(|e| AppError::new(format!("Terminal error: {}", e)))?;
-        println!("Watching TOTP codes (press 'q' to exit):\n");
+        println!("Watching TOTP codes (Press ctrl-c to exit)\n");
 
         // Print table header
         println!("┌─{}─┬─{}─┐", "─".repeat(max_name_width), "─".repeat(6));
@@ -347,7 +340,11 @@ fn watch_codes() -> Result<(), AppError> {
         println!();
 
         // Draw progress bar at the bottom of the terminal
-        execute!(stdout, MoveTo(0, term_height - 2), Clear(ClearType::CurrentLine))?;
+        execute!(
+            stdout,
+            MoveTo(0, term_height - 2),
+            Clear(ClearType::CurrentLine)
+        )?;
         let bar_width = 50;
         let filled = (progress_percent as f32 / 100.0 * bar_width as f32) as usize;
         let empty = bar_width - filled;
@@ -365,6 +362,115 @@ fn watch_codes() -> Result<(), AppError> {
             .flush()
             .map_err(|e| AppError::new(format!("Terminal error: {}", e)))?;
     }
+}
+
+fn fuzzy_find() -> Result<(), AppError> {
+    let storage = get_storage()?;
+    if storage.accounts.is_empty() {
+        println!("No accounts configured");
+        return Ok(());
+    }
+
+    let mut stdout = io::stdout();
+    execute!(stdout, Clear(ClearType::All))?;
+
+    let mut query = String::new();
+    let matcher = SkimMatcherV2::default();
+    let mut selected = 0;
+
+    let (_, term_height) = size()?;
+    loop {
+        let max_display = (term_height - 5) as usize;
+
+        // Filter and score accounts
+        let mut matches: Vec<_> = storage.accounts
+            .iter()
+            .filter_map(|account| {
+                matcher.fuzzy_match(&account.name, &query)
+                    .map(|score| (score, account))
+            })
+            .collect();
+        matches.sort_by_key(|(score, _)| -score);
+
+        // Ensure selected index is valid
+        if selected >= matches.len() {
+            selected = matches.len().saturating_sub(1);
+        }
+
+        // Display UI
+        execute!(stdout, MoveTo(0, 0), Clear(ClearType::All))?;
+        println!("🔍 {}_", query);
+        println!("Type to filter, ↑/↓ to navigate, Enter to select, Esc/q to quit");
+        println!();
+
+        // Display matches
+        if matches.is_empty() {
+            println!("No matches found");
+        } else {
+            for (i, (_, account)) in matches.iter().take(max_display).enumerate() {
+                if i == selected {
+                    execute!(stdout, SetForegroundColor(Color::Green))?;
+                    println!(" > {}", &account.name);
+                    execute!(stdout, SetForegroundColor(Color::Reset))?;
+                } else {
+                    println!("   {}", account.name);
+                }
+            }
+            if matches.len() > max_display {
+                println!("   ... and {} more", matches.len() - max_display);
+            }
+        }
+
+        stdout.flush()?;
+
+        // Handle input
+        match event::read()? {
+            Event::Key(KeyEvent { code: KeyCode::Char('c'), modifiers: KeyModifiers::CONTROL, .. }) |
+            Event::Key(KeyEvent { code: KeyCode::Esc, .. }) |
+            Event::Key(KeyEvent { code: KeyCode::Char('q'), .. }) => {
+                break;
+            }
+            Event::Key(KeyEvent { code: KeyCode::Char(c), .. }) => {
+                query.push(c);
+                selected = 0;
+            }
+            Event::Key(KeyEvent { code: KeyCode::Backspace, .. }) => {
+                query.pop();
+                selected = 0;
+            }
+            Event::Key(KeyEvent { code: KeyCode::Up, .. }) => {
+                if selected > 0 {
+                    selected -= 1;
+                }
+            }
+            Event::Key(KeyEvent { code: KeyCode::Down, .. }) => {
+                if selected + 1 < matches.len().min(max_display) {
+                    selected += 1;
+                }
+            }
+            Event::Key(KeyEvent { code: KeyCode::Enter, .. }) => {
+                if let Some((_, account)) = matches.get(selected) {
+                    match generate_totp(account) {
+                        Ok(code) => {
+                            execute!(stdout, Clear(ClearType::All))?;
+                            println!("Code for {}: {:0width$}", account.name, code, width = account.digits as usize);
+                            return Ok(());
+                        }
+                        Err(e) => {
+                            execute!(stdout, SetForegroundColor(Color::Red))?;
+                            println!("Error: {}", e);
+                            execute!(stdout, SetForegroundColor(Color::Reset))?;
+                            std::thread::sleep(std::time::Duration::from_secs(2));
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    execute!(stdout, Clear(ClearType::All))?;
+    Ok(())
 }
 
 fn main() {
@@ -406,6 +512,7 @@ fn main() {
             get_account(name).and_then(|account| export_qr_code(name, &account.secret))
         }
         Commands::Watch => watch_codes(),
+        Commands::Find => fuzzy_find(),
     };
 
     if let Err(err) = result {

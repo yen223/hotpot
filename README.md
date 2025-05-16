@@ -1,6 +1,8 @@
 # Hotpot 🍲
 
-A simple and secure command-line tool for managing TOTP-based two-factor authentication codes. Hotpot securely stores your 2FA secrets in your system's keyring and generates time-based one-time passwords when you need them.
+Authy / Google Authenticator for the command line.
+
+Hotpot is a simple and secure command-line tool for managing TOTP-based two-factor authentication codes. Hotpot securely stores your 2FA secrets in your system's keyring and generates time-based one-time passwords when you need them.
 
 This was largely vibe-coded, so use at your own risk!
 
@@ -89,7 +91,7 @@ The binary will be available at `target/release/hotpot`
 - base32: RFC 4648 base32 encoding/decoding
 - hmac & sha1: TOTP algorithm implementation
 - serde & serde_json: Data serialization
-- rpassword: Secure password/secret input 
+- rpassword: Secure password/secret input
 - crossterm: Terminal manipulation and display
 
 ## License
