@@ -50,6 +50,14 @@ hotpot code github
 hotpot list
 ```
 
+### Watch all accounts
+
+```bash
+hotpot watch
+```
+
+Continuously display and update TOTP codes for all accounts. The display refreshes every second and can be exited with Ctrl+C.
+
 ### Delete an account
 
 ```bash
@@ -81,7 +89,8 @@ The binary will be available at `target/release/hotpot`
 - base32: RFC 4648 base32 encoding/decoding
 - hmac & sha1: TOTP algorithm implementation
 - serde & serde_json: Data serialization
-- rpassword: Secure password/secret input
+- rpassword: Secure password/secret input 
+- crossterm: Terminal manipulation and display
 
 ## License
 
