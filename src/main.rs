@@ -2,10 +2,10 @@ use base32::{Alphabet, decode};
 use clap::{Parser, Subcommand};
 use crossterm::{
     cursor::{Hide, MoveTo, Show},
-    event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
+    event::{Event, KeyCode, KeyEvent, KeyModifiers, poll, read},
     execute,
-    style::{Color, SetForegroundColor},
-    terminal::{Clear, ClearType, size},
+    style::{Color, SetForegroundColor, Attribute, SetAttribute},
+    terminal::{Clear, ClearType, size, enable_raw_mode, disable_raw_mode},
 };
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
@@ -372,15 +372,17 @@ fn fuzzy_find() -> Result<(), AppError> {
     }
 
     let mut stdout = io::stdout();
-    execute!(stdout, Clear(ClearType::All))?;
+    enable_raw_mode()?;
+    execute!(stdout, Clear(ClearType::All), Hide)?;
 
     let mut query = String::new();
     let matcher = SkimMatcherV2::default();
     let mut selected = 0;
 
-    let (_, term_height) = size()?;
     loop {
-        let max_display = (term_height - 5) as usize;
+        // Get terminal size and calculate display area
+        let (_, term_height) = size()?;
+        let max_display = (term_height - 4) as usize;
 
         // Filter and score accounts
         let mut matches: Vec<_> = storage.accounts
@@ -392,84 +394,67 @@ fn fuzzy_find() -> Result<(), AppError> {
             .collect();
         matches.sort_by_key(|(score, _)| -score);
 
-        // Ensure selected index is valid
-        if selected >= matches.len() {
-            selected = matches.len().saturating_sub(1);
-        }
-
         // Display UI
         execute!(stdout, MoveTo(0, 0), Clear(ClearType::All))?;
-        println!("🔍 {}_", query);
-        println!("Type to filter, ↑/↓ to navigate, Enter to select, Esc/q to quit");
-        println!();
+        execute!(stdout, MoveTo(0, 0))?;
+        print!("Search: {}_\n\n", query);
 
         // Display matches
-        if matches.is_empty() {
-            println!("No matches found");
-        } else {
-            for (i, (_, account)) in matches.iter().take(max_display).enumerate() {
-                if i == selected {
-                    execute!(stdout, SetForegroundColor(Color::Green))?;
-                    println!(" > {}", &account.name);
-                    execute!(stdout, SetForegroundColor(Color::Reset))?;
-                } else {
-                    println!("   {}", account.name);
-                }
+        for (i, (_, account)) in matches.iter().take(max_display).enumerate() {
+            execute!(stdout, MoveTo(0, i as u16 + 2), Clear(ClearType::CurrentLine))?;
+            if i == selected {
+                execute!(stdout, SetAttribute(Attribute::Bold))?;
+                print!(">{} ", &account.name);
+                execute!(stdout, SetAttribute(Attribute::Reset))?;
+            } else {
+                print!(" {} ", &account.name);
             }
-            if matches.len() > max_display {
-                println!("   ... and {} more", matches.len() - max_display);
-            }
+            stdout.flush()?;
         }
 
-        stdout.flush()?;
-
         // Handle input
-        match event::read()? {
-            Event::Key(KeyEvent { code: KeyCode::Char('c'), modifiers: KeyModifiers::CONTROL, .. }) |
-            Event::Key(KeyEvent { code: KeyCode::Esc, .. }) |
-            Event::Key(KeyEvent { code: KeyCode::Char('q'), .. }) => {
-                break;
-            }
-            Event::Key(KeyEvent { code: KeyCode::Char(c), .. }) => {
-                query.push(c);
-                selected = 0;
-            }
-            Event::Key(KeyEvent { code: KeyCode::Backspace, .. }) => {
-                query.pop();
-                selected = 0;
-            }
-            Event::Key(KeyEvent { code: KeyCode::Up, .. }) => {
-                if selected > 0 {
-                    selected -= 1;
+        if poll(std::time::Duration::from_millis(50))? {
+            match read()? {
+                Event::Key(KeyEvent { code: KeyCode::Char('c'), modifiers: KeyModifiers::CONTROL, .. }) |
+                Event::Key(KeyEvent { code: KeyCode::Esc, .. }) |
+                Event::Key(KeyEvent { code: KeyCode::Char('q'), .. }) => {
+                    break;
                 }
-            }
-            Event::Key(KeyEvent { code: KeyCode::Down, .. }) => {
-                if selected + 1 < matches.len().min(max_display) {
-                    selected += 1;
+                Event::Key(KeyEvent { code: KeyCode::Char(c), .. }) => {
+                    query.push(c);
+                    selected = 0;
                 }
-            }
-            Event::Key(KeyEvent { code: KeyCode::Enter, .. }) => {
-                if let Some((_, account)) = matches.get(selected) {
-                    match generate_totp(account) {
-                        Ok(code) => {
-                            execute!(stdout, Clear(ClearType::All))?;
-                            println!("Code for {}: {:0width$}", account.name, code, width = account.digits as usize);
-                            return Ok(());
-                        }
-                        Err(e) => {
-                            execute!(stdout, SetForegroundColor(Color::Red))?;
-                            println!("Error: {}", e);
-                            execute!(stdout, SetForegroundColor(Color::Reset))?;
-                            std::thread::sleep(std::time::Duration::from_secs(2));
-                        }
+                Event::Key(KeyEvent { code: KeyCode::Backspace, .. }) => {
+                    query.pop();
+                    selected = 0;
+                }
+                Event::Key(KeyEvent { code: KeyCode::Up, .. }) => {
+                    if selected > 0 {
+                        selected -= 1;
                     }
                 }
+                Event::Key(KeyEvent { code: KeyCode::Down, .. }) => {
+                    if selected + 1 < matches.len().min(max_display) {
+                        selected += 1;
+                    }
+                }
+                Event::Key(KeyEvent { code: KeyCode::Enter, .. }) => {
+                    if let Some((_, account)) = matches.get(selected) {
+                        execute!(stdout, Clear(ClearType::All), Show)?;
+                        disable_raw_mode()?;
+                        if let Ok(code) = generate_totp(account) {
+                            println!("Code for {}: {:0width$}", account.name, code, width = account.digits as usize);
+                        }
+                        return Ok(());
+                    }
+                }
+                _ => {}
             }
-            _ => {}
         }
     }
 
-    execute!(stdout, Clear(ClearType::All))?;
+    execute!(stdout, Show)?;
+    disable_raw_mode()?;
     Ok(())
 }
 
