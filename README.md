@@ -11,8 +11,7 @@ This was largely vibe-coded, so use at your own risk!
 - 🔒 Secure storage using system keyring
 - 🕒 TOTP (RFC 6238) code generation
 - 💻 Simple command-line interface
-- 🗂️ Easy account management
-- 🔍 Interactive fuzzy search for accounts
+- 🗂️ Easy account management with fuzzy search
 
 ## Installation
 
@@ -47,24 +46,10 @@ Example:
 hotpot code github
 ```
 
-### List all accounts
+### List and search accounts
 
 ```bash
 hotpot list
-```
-
-### Watch all accounts
-
-```bash
-hotpot watch
-```
-
-Continuously display and update TOTP codes for all accounts. The display refreshes every second and can be exited with Ctrl+C.
-
-### Find an account
-
-```bash
-hotpot find
 ```
 
 Interactively search for accounts using fuzzy matching. Type to filter accounts in real-time, use up/down arrows to navigate, and press Enter to generate the code for the selected account. Press 'q', 'Esc', or Ctrl+C to exit.

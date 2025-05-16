@@ -81,7 +81,7 @@ enum Commands {
         /// Account name to generate code for
         name: String,
     },
-    /// List all configured accounts
+    /// Interactively search and list accounts
     List,
     /// Delete an account
     Delete {
@@ -95,10 +95,6 @@ enum Commands {
         #[arg(long)]
         name: String,
     },
-    /// Watch and continuously update codes for all accounts
-    Watch,
-    /// Fuzzy find an account and show its code
-    Find,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -275,94 +271,6 @@ fn export_qr_code(name: &str, secret: &str) -> Result<(), AppError> {
     Ok(())
 }
 
-fn watch_codes() -> Result<(), AppError> {
-    let mut stdout = io::stdout();
-    execute!(stdout, Clear(ClearType::All), Hide)
-        .map_err(|e| AppError::new(format!("Terminal error: {}", e)))?;
-    let storage = get_storage()?;
-
-    if storage.accounts.is_empty() {
-        println!("No accounts configured");
-        execute!(stdout, Show)?;
-        return Ok(());
-    }
-
-    // Calculate maximum width for name column
-    let max_name_width = storage
-        .accounts
-        .iter()
-        .map(|a| a.name.len())
-        .max()
-        .unwrap_or(0);
-
-    let (_, term_height) = size().map_err(|e| AppError::new(format!("Terminal error: {}", e)))?;
-
-    loop {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("Time went backwards");
-        let secs_until_next_30 = 30 - (now.as_secs() % 30);
-        let progress_percent = ((30 - secs_until_next_30) as f32 / 30.0 * 100.0) as u32;
-
-        execute!(stdout, MoveTo(0, 0))
-            .map_err(|e| AppError::new(format!("Terminal error: {}", e)))?;
-        println!("Watching TOTP codes (Press ctrl-c to exit)\n");
-
-        // Print table header
-        println!("┌─{}─┬─{}─┐", "─".repeat(max_name_width), "─".repeat(6));
-        println!(
-            "│ {:<width$} │ {:<6} │",
-            "Account",
-            "Code",
-            width = max_name_width
-        );
-        println!("├─{}─┼─{}─┤", "─".repeat(max_name_width), "─".repeat(6));
-
-        for account in &storage.accounts {
-            match generate_totp(account) {
-                Ok(code) => println!(
-                    "│ {:<width$} │ {:0>6} │",
-                    account.name,
-                    code,
-                    width = max_name_width
-                ),
-                Err(e) => println!(
-                    "│ {:<width$} │ ERR:{} │",
-                    account.name,
-                    e.message.chars().take(3).collect::<String>(),
-                    width = max_name_width
-                ),
-            }
-        }
-
-        // Print table footer
-        println!("└─{}─┴─{}─┘", "─".repeat(max_name_width), "─".repeat(6));
-        println!();
-
-        // Draw progress bar at the bottom of the terminal
-        execute!(
-            stdout,
-            MoveTo(0, term_height - 2),
-            Clear(ClearType::CurrentLine)
-        )?;
-        let bar_width = 50;
-        let filled = (progress_percent as f32 / 100.0 * bar_width as f32) as usize;
-        let empty = bar_width - filled;
-
-        execute!(stdout, SetForegroundColor(Color::Green))?;
-        print!(
-            "[{}{}] {:2}s",
-            "=".repeat(filled),
-            " ".repeat(empty),
-            secs_until_next_30
-        );
-        execute!(stdout, SetForegroundColor(Color::Reset))?;
-
-        stdout
-            .flush()
-            .map_err(|e| AppError::new(format!("Terminal error: {}", e)))?;
-    }
-}
 
 fn fuzzy_find() -> Result<(), AppError> {
     let storage = get_storage()?;
@@ -547,28 +455,13 @@ fn main() {
                 );
             })
         }),
-        Commands::List => match get_storage() {
-            Ok(storage) => {
-                if storage.accounts.is_empty() {
-                    println!("No accounts configured");
-                } else {
-                    println!("Configured accounts:");
-                    for account in storage.accounts {
-                        println!("  {}", account.name);
-                    }
-                }
-                Ok(())
-            }
-            Err(e) => Err(e),
-        },
+        Commands::List => fuzzy_find(),
         Commands::Delete { name } => {
             delete_account(name).map(|_| println!("Deleted account: {}", name))
         }
         Commands::ExportQr { name } => {
             get_account(name).and_then(|account| export_qr_code(name, &account.secret))
         }
-        Commands::Watch => watch_codes(),
-        Commands::Find => fuzzy_find(),
     };
 
     if let Err(err) = result {
