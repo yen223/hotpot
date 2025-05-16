@@ -2,6 +2,13 @@
 name = "hotpot"
 version = "0.1.0"
 edition = "2024"
+authors = ["yen"]
+description = "A simple CLI for TOTP-based 2FA"
+license = "MIT"
+repository = "https://github.com/yen223/hotpot"
+keywords = ["totp", "2fa", "authentication", "cli", "security"]
+categories = ["command-line-utilities", "authentication"]
+readme = "README.md"
 
 [dependencies]
 clap = { version = "4.3.7", features = ["derive"] }

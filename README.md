@@ -14,7 +14,7 @@ This was largely vibe-coded, so use at your own risk!
 ## Installation
 
 ```bash
-cargo build --release
+cargo install --path . --locked
 ```
 
 ## Usage
