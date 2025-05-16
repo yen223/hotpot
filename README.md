@@ -12,6 +12,7 @@ This was largely vibe-coded, so use at your own risk!
 - 🕒 TOTP (RFC 6238) code generation
 - 💻 Simple command-line interface
 - 🗂️ Easy account management
+- 🔍 Interactive fuzzy search for accounts
 
 ## Installation
 
@@ -60,6 +61,14 @@ hotpot watch
 
 Continuously display and update TOTP codes for all accounts. The display refreshes every second and can be exited with Ctrl+C.
 
+### Find an account
+
+```bash
+hotpot find
+```
+
+Interactively search for accounts using fuzzy matching. Type to filter accounts in real-time, use up/down arrows to navigate, and press Enter to generate the code for the selected account. Press 'q', 'Esc', or Ctrl+C to exit.
+
 ### Delete an account
 
 ```bash
@@ -93,6 +102,7 @@ The binary will be available at `target/release/hotpot`
 - serde & serde_json: Data serialization
 - rpassword: Secure password/secret input
 - crossterm: Terminal manipulation and display
+- fuzzy-matcher: Interactive fuzzy searching
 
 ## License
 
