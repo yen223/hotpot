@@ -2,7 +2,7 @@ use base32::{decode, Alphabet};
 use hmac::{Hmac, Mac};
 use sha1::Sha1;
 use serde::{Deserialize, Serialize};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use super::AppError;
 
@@ -70,15 +70,12 @@ impl Account {
     }
 }
 
-pub fn generate_totp(account: &Account) -> Result<u32, AppError> {
+pub fn generate_totp(account: &Account, duration: Duration) -> Result<u32, AppError> {
     let secret_bytes = match decode(Alphabet::RFC4648 { padding: false }, &account.secret) {
         Some(bytes) => bytes,
         None => return Err(AppError::new("Bytes could not be decoded")),
     };
 
-    let duration = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("System time is before Unix epoch");
     let counter = duration.as_secs() / u64::from(account.period);
 
     let mut mac = match account.algorithm.as_str() {

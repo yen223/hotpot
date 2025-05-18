@@ -16,8 +16,8 @@ use std::io::{self, Write};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 mod totp;
+use crate::totp::{Account, generate_otpauth_uri, generate_totp};
 use hotpot::AppError;
-use crate::totp::{Account, generate_totp, generate_otpauth_uri};
 
 const SERVICE_NAME: &str = "hotpot";
 const STORAGE_KEY: &str = "_hotpot_storage";
@@ -62,8 +62,6 @@ enum Commands {
 struct Storage {
     accounts: Vec<Account>,
 }
-
-
 
 fn get_storage() -> Result<Storage, AppError> {
     let entry = Entry::new(SERVICE_NAME, STORAGE_KEY).map_err(AppError::from)?;
@@ -114,16 +112,12 @@ fn delete_account(name: &str) -> Result<(), AppError> {
     save_storage(&storage)
 }
 
-
-
 fn handle_error(err: AppError) {
     eprintln!("Error: {}", err);
     if let Some(source) = err.source() {
         eprintln!("Caused by: {}", source);
     }
 }
-
-
 
 fn export_qr_code(name: &str, secret: &str) -> Result<(), AppError> {
     use qrcode::{QrCode, render::unicode};
@@ -141,7 +135,6 @@ fn export_qr_code(name: &str, secret: &str) -> Result<(), AppError> {
     println!("\n{}", qr_string);
     Ok(())
 }
-
 
 fn fuzzy_find() -> Result<(), AppError> {
     let storage = get_storage()?;
@@ -207,7 +200,7 @@ fn fuzzy_find() -> Result<(), AppError> {
                 MoveTo(0, i as u16 + 2),
                 Clear(ClearType::CurrentLine)
             )?;
-            let code = generate_totp(account);
+            let code = generate_totp(account, now);
             let max_name_len = (term_width as usize).saturating_sub(10); // Leave room for code
             let display_name = if account.name.len() > max_name_len {
                 format!("{}...", &account.name[..max_name_len.saturating_sub(3)])
@@ -286,7 +279,10 @@ fn fuzzy_find() -> Result<(), AppError> {
                     if let Some((_, account)) = matches.get(selected) {
                         execute!(stdout, Clear(ClearType::All), MoveTo(0, 0), Show)?;
                         disable_raw_mode()?;
-                        if let Ok(code) = generate_totp(account) {
+                        let duration = SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .expect("System time is before Unix epoch");
+                        if let Ok(code) = generate_totp(account, duration) {
                             print!(
                                 "Code for {}: {:0width$}\n",
                                 account.name,
@@ -317,7 +313,10 @@ fn main() {
             Err(err) => Err(AppError::new(err.to_string())),
         },
         Commands::Code { name } => get_account(name).and_then(|account| {
-            generate_totp(&account).map(|code| {
+            let duration = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("System time is before Unix epoch");
+            generate_totp(&account, duration).map(|code| {
                 println!(
                     "Code for {}: {:0width$}",
                     name,
