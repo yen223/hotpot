@@ -101,3 +101,69 @@ pub fn generate_totp(account: &Account, duration: Duration) -> Result<u32, AppEr
 pub fn generate_otpauth_uri(name: &str, secret: &str) -> String {
     Account::new(name.to_string(), secret.to_string()).generate_uri()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    // Test vector from RFC 6238 (using SHA1)
+    // Base32 encoded version of "12345678901234567890"
+    const TEST_SECRET: &str = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
+
+    struct TestVector {
+        time: u64,
+        expected_totp: u32,
+    }
+
+    fn create_test_account() -> Account {
+        Account {
+            name: "test".to_string(),
+            secret: TEST_SECRET.to_string(),
+            issuer: default_issuer(),
+            algorithm: default_algorithm(),
+            digits: 8, // RFC test vectors use 8 digits
+            period: 30,
+        }
+    }
+
+    #[test]
+    fn test_rfc6238_vectors() {
+        let test_vectors = vec![
+            TestVector { time: 59, expected_totp: 94287082 },
+            TestVector { time: 1111111109, expected_totp: 07081804 },
+            TestVector { time: 1111111111, expected_totp: 14050471 },
+            TestVector { time: 1234567890, expected_totp: 89005924 },
+            TestVector { time: 2000000000, expected_totp: 69279037 },
+            TestVector { time: 20000000000, expected_totp: 65353130 },
+        ];
+
+        let account = create_test_account();
+
+        for vector in test_vectors {
+            let duration = Duration::from_secs(vector.time);
+            let result = generate_totp(&account, duration).unwrap();
+            assert_eq!(result, vector.expected_totp, 
+                "Failed at timestamp {}: got {} but expected {}", 
+                vector.time, result, vector.expected_totp);
+        }
+    }
+
+    #[test]
+    fn test_invalid_secret() {
+        let mut account = create_test_account();
+        account.secret = "invalid base32".to_string();
+        
+        let duration = Duration::from_secs(59);
+        assert!(generate_totp(&account, duration).is_err());
+    }
+
+    #[test]
+    fn test_invalid_algorithm() {
+        let mut account = create_test_account();
+        account.algorithm = "SHA999".to_string();
+        
+        let duration = Duration::from_secs(59);
+        assert!(generate_totp(&account, duration).is_err());
+    }
+}
