@@ -1,7 +1,7 @@
-use base32::{decode, Alphabet};
+use base32::{Alphabet, decode};
 use hmac::{Hmac, Mac};
-use sha1::Sha1;
 use serde::{Deserialize, Serialize};
+use sha1::Sha1;
 use std::time::Duration;
 
 use super::AppError;
@@ -130,12 +130,30 @@ mod tests {
     #[test]
     fn test_rfc6238_vectors() {
         let test_vectors = vec![
-            TestVector { time: 59, expected_totp: 94287082 },
-            TestVector { time: 1111111109, expected_totp: 07081804 },
-            TestVector { time: 1111111111, expected_totp: 14050471 },
-            TestVector { time: 1234567890, expected_totp: 89005924 },
-            TestVector { time: 2000000000, expected_totp: 69279037 },
-            TestVector { time: 20000000000, expected_totp: 65353130 },
+            TestVector {
+                time: 59,
+                expected_totp: 94287082,
+            },
+            TestVector {
+                time: 1111111109,
+                expected_totp: 07081804,
+            },
+            TestVector {
+                time: 1111111111,
+                expected_totp: 14050471,
+            },
+            TestVector {
+                time: 1234567890,
+                expected_totp: 89005924,
+            },
+            TestVector {
+                time: 2000000000,
+                expected_totp: 69279037,
+            },
+            TestVector {
+                time: 20000000000,
+                expected_totp: 65353130,
+            },
         ];
 
         let account = create_test_account();
@@ -143,9 +161,11 @@ mod tests {
         for vector in test_vectors {
             let duration = Duration::from_secs(vector.time);
             let result = generate_totp(&account, duration).unwrap();
-            assert_eq!(result, vector.expected_totp, 
-                "Failed at timestamp {}: got {} but expected {}", 
-                vector.time, result, vector.expected_totp);
+            assert_eq!(
+                result, vector.expected_totp,
+                "Failed at timestamp {}: got {} but expected {}",
+                vector.time, result, vector.expected_totp
+            );
         }
     }
 
@@ -153,7 +173,7 @@ mod tests {
     fn test_invalid_secret() {
         let mut account = create_test_account();
         account.secret = "invalid base32".to_string();
-        
+
         let duration = Duration::from_secs(59);
         assert!(generate_totp(&account, duration).is_err());
     }
@@ -162,7 +182,7 @@ mod tests {
     fn test_invalid_algorithm() {
         let mut account = create_test_account();
         account.algorithm = "SHA999".to_string();
-        
+
         let duration = Duration::from_secs(59);
         assert!(generate_totp(&account, duration).is_err());
     }
