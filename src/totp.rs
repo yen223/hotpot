@@ -89,10 +89,6 @@ pub fn generate_totp(account: &Account, duration: Duration) -> Result<u32, AppEr
     // - Current Unix time = duration.as_secs()
     // - T0 = account.epoch (default 0 for Unix epoch)
     // - X = account.period (default 30 seconds)
-    // T = (Current Unix time - T0) / X, where:
-    // - Current Unix time = duration.as_secs()
-    // - T0 = account.epoch (default 0 for Unix epoch)
-    // - X = account.period (default 30 seconds)
     let counter = (duration.as_secs().saturating_sub(account.epoch)) / u64::from(account.period);
 
     // Convert counter to exactly 8 bytes big-endian per RFC 6238
@@ -143,9 +139,10 @@ mod tests {
 
     // Test vectors from RFC 6238
     // The test token shared secrets use ASCII strings with lengths matching each hash:
-    const TEST_SECRET_SHA1: &str = "12345678901234567890";               // 20 bytes
+    const TEST_SECRET_SHA1: &str = "12345678901234567890"; // 20 bytes
     const TEST_SECRET_SHA256: &str = "12345678901234567890123456789012"; // 32 bytes
-    const TEST_SECRET_SHA512: &str = "1234567890123456789012345678901234567890123456789012345678901234"; // 64 bytes
+    const TEST_SECRET_SHA512: &str =
+        "1234567890123456789012345678901234567890123456789012345678901234"; // 64 bytes
 
     struct TestVector {
         time: u64,
