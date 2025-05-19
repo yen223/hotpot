@@ -11,7 +11,7 @@ This was largely vibe-coded, so use at your own risk!
 - 🔒 Secure storage using system keyring
 - 🕒 TOTP (RFC 6238) code generation
 - 💻 Simple command-line interface
-- 🗂️ Easy account management with fuzzy search
+- 🗂️ Interactive dashboard with real-time codes and search
 
 ## Installation
 
@@ -35,7 +35,17 @@ hotpot add github
 Enter the Base32 secret: ********
 ```
 
-### Generate a code
+### Interactive Dashboard
+
+Just run `hotpot` to open the interactive dashboard where you can:
+- View all your TOTP codes in real-time
+- See a progress bar showing when codes will refresh
+- Press [F] to search accounts using fuzzy matching
+- Use up/down arrows to navigate
+- Press Enter to show a selected code
+- Press 'q', 'Esc', or Ctrl+C to exit
+
+### Generate a single code
 
 ```bash
 hotpot code <account-name>
@@ -45,14 +55,6 @@ Example:
 ```bash
 hotpot code github
 ```
-
-### List and search accounts
-
-```bash
-hotpot list
-```
-
-Interactively search for accounts using fuzzy matching. Type to filter accounts in real-time, use up/down arrows to navigate, and press Enter to generate the code for the selected account. Press 'q', 'Esc', or Ctrl+C to exit.
 
 ### Delete an account
 
