@@ -4,6 +4,8 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use rpassword::prompt_password;
+
 use crossterm::{
     cursor::{Hide, MoveTo, MoveToNextLine, Show},
     event::{Event, KeyCode, KeyEvent, KeyModifiers, poll, read},
@@ -14,14 +16,10 @@ use crossterm::{
 use fuzzy_matcher::FuzzyMatcher;
 use fuzzy_matcher::skim::SkimMatcherV2;
 
-use crate::{AppError, get_storage, totp::generate_totp};
+use crate::{AppError, delete_account, get_storage, save_account, totp::generate_totp};
 
 pub fn show() -> Result<(), AppError> {
-    let storage = get_storage()?;
-    if storage.accounts.is_empty() {
-        println!("No accounts configured");
-        return Ok(());
-    }
+    let mut storage = get_storage()?;
 
     let mut stdout = io::stdout();
     enable_raw_mode()?;
@@ -63,9 +61,8 @@ pub fn show() -> Result<(), AppError> {
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards");
         let secs_until_next_30 = 30 - (now.as_secs() % 30);
-        let progress_percent = ((30 - secs_until_next_30) as f32 / 30.0 * 100.0) as u32;
-        let bar_width = 50;
-        let filled = (progress_percent as f32 / 100.0 * bar_width as f32) as usize;
+        let bar_width = 30;
+        let filled = (30 - secs_until_next_30) as usize;
         let empty = bar_width - filled;
 
         execute!(stdout, SetForegroundColor(Color::Green))?;
@@ -132,11 +129,63 @@ pub fn show() -> Result<(), AppError> {
                     code: KeyCode::Char(c),
                     ..
                 }) => {
-                    if c == 'f' && !search_mode {
-                        search_mode = true;
-                    } else if search_mode {
-                        query.push(c);
-                        selected = 0;
+                    match c.to_ascii_lowercase() {
+                        'f' if !search_mode => {
+                            search_mode = true;
+                        }
+                        'a' if !search_mode => {
+                            // Temporarily restore terminal state
+                            execute!(stdout, Clear(ClearType::All), MoveTo(0, 0), Show)?;
+                            disable_raw_mode()?;
+
+                            // Get account details
+                            print!("Enter account name: ");
+                            stdout.flush()?;
+                            let mut name = String::new();
+                            io::stdin().read_line(&mut name)?;
+                            let name = name.trim();
+
+                            if let Ok(secret) = prompt_password("Enter the Base32 secret: ") {
+                                if let Ok(()) = save_account(name, &secret) {
+                                    println!("Added account: {}", name);
+                                }
+                            }
+
+                            // Restore dashboard state
+                            enable_raw_mode()?;
+                            execute!(stdout, Clear(ClearType::All), Hide)?;
+                            storage = get_storage()?;
+                        }
+                        'd' if !search_mode => {
+                            if let Some((_, account)) = matches.get(selected) {
+                                // Temporarily restore terminal state
+                                execute!(stdout, Clear(ClearType::All), MoveTo(0, 0), Show)?;
+                                disable_raw_mode()?;
+
+                                // Confirm deletion
+                                print!("Delete account '{}'? [y/N] ", account.name);
+                                stdout.flush()?;
+                                let mut confirm = String::new();
+                                io::stdin().read_line(&mut confirm)?;
+
+                                if confirm.trim().eq_ignore_ascii_case("y") {
+                                    if let Ok(()) = delete_account(&account.name) {
+                                        println!("Deleted account: {}", account.name);
+                                    }
+                                }
+
+                                // Restore dashboard state
+                                enable_raw_mode()?;
+                                execute!(stdout, Clear(ClearType::All), Hide)?;
+                                storage = get_storage()?;
+                                selected = selected.saturating_sub(1);
+                            }
+                        }
+                        _ if search_mode => {
+                            query.push(c);
+                            selected = 0;
+                        }
+                        _ => {}
                     }
                 }
                 Event::Key(KeyEvent {
