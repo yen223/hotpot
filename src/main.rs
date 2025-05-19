@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 use crossterm::{
-    cursor::{Hide, MoveTo, Show},
+    cursor::{Hide, MoveTo, MoveToNextLine, Show},
     event::{Event, KeyCode, KeyEvent, KeyModifiers, poll, read},
     execute,
     style::{Attribute, Color, SetAttribute, SetForegroundColor},
@@ -27,7 +27,7 @@ const STORAGE_KEY: &str = "_hotpot_storage";
 #[command(about = "A simple CLI for TOTP-based 2FA", long_about = None)]
 struct Cli {
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
 }
 
 #[derive(Subcommand)]
@@ -42,8 +42,6 @@ enum Commands {
         /// Account name to generate code for
         name: String,
     },
-    /// Interactively search and list accounts
-    List,
     /// Delete an account
     Delete {
         /// Account name to delete
@@ -136,7 +134,7 @@ fn export_qr_code(name: &str, secret: &str) -> Result<(), AppError> {
     Ok(())
 }
 
-fn fuzzy_find() -> Result<(), AppError> {
+fn dashboard() -> Result<(), AppError> {
     let storage = get_storage()?;
     if storage.accounts.is_empty() {
         println!("No accounts configured");
@@ -150,6 +148,7 @@ fn fuzzy_find() -> Result<(), AppError> {
     let mut query = String::new();
     let matcher = SkimMatcherV2::default();
     let mut selected = 0;
+    let mut search_mode = false;
 
     loop {
         // Get terminal size and calculate display area
@@ -170,8 +169,12 @@ fn fuzzy_find() -> Result<(), AppError> {
 
         // Display UI
         execute!(stdout, MoveTo(0, 0), Clear(ClearType::All))?;
-        execute!(stdout, MoveTo(0, 0))?;
-        print!("Search: {}_\n", query);
+        if search_mode {
+            print!("Search: {}_", query);
+        } else {
+            print!("[F]ind\t[A]dd account\t[D]elete");
+        }
+        execute!(stdout, MoveToNextLine(1))?;
 
         // Display progress bar
         let now = SystemTime::now()
@@ -247,15 +250,21 @@ fn fuzzy_find() -> Result<(), AppError> {
                     code: KeyCode::Char(c),
                     ..
                 }) => {
-                    query.push(c);
-                    selected = 0;
+                    if c == 'f' && !search_mode {
+                        search_mode = true;
+                    } else if search_mode {
+                        query.push(c);
+                        selected = 0;
+                    }
                 }
                 Event::Key(KeyEvent {
                     code: KeyCode::Backspace,
                     ..
                 }) => {
-                    query.pop();
-                    selected = 0;
+                    if search_mode {
+                        query.pop();
+                        selected = 0;
+                    }
                 }
                 Event::Key(KeyEvent {
                     code: KeyCode::Up, ..
@@ -307,12 +316,13 @@ fn fuzzy_find() -> Result<(), AppError> {
 fn main() {
     let cli = Cli::parse();
 
-    let result = match &cli.command {
-        Commands::Add { name } => match prompt_password("Enter the Base32 secret: ") {
+    let result = match &cli.command.as_ref() {
+        None => dashboard(),
+        Some(Commands::Add { name }) => match prompt_password("Enter the Base32 secret: ") {
             Ok(secret) => save_account(name, &secret).map(|_| println!("Added account: {}", name)),
             Err(err) => Err(AppError::new(err.to_string())),
         },
-        Commands::Code { name } => get_account(name).and_then(|account| {
+        Some(Commands::Code { name }) => get_account(name).and_then(|account| {
             let duration = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("System time is before Unix epoch");
@@ -325,11 +335,10 @@ fn main() {
                 );
             })
         }),
-        Commands::List => fuzzy_find(),
-        Commands::Delete { name } => {
+        Some(Commands::Delete { name }) => {
             delete_account(name).map(|_| println!("Deleted account: {}", name))
         }
-        Commands::ExportQr { name } => {
+        Some(Commands::ExportQr { name }) => {
             get_account(name).and_then(|account| export_qr_code(name, &account.secret))
         }
     };
