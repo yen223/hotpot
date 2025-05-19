@@ -1,8 +1,11 @@
 use std::{
     cmp::min,
     io::{self, Write},
+    thread,
     time::{SystemTime, UNIX_EPOCH},
 };
+
+use arboard::Clipboard;
 
 use rpassword::prompt_password;
 
@@ -217,21 +220,20 @@ pub fn show() -> Result<(), AppError> {
                     ..
                 }) => {
                     if let Some((_, account)) = matches.get(selected) {
-                        execute!(stdout, Clear(ClearType::All), MoveTo(0, 0), Show)?;
-                        disable_raw_mode()?;
                         let duration = SystemTime::now()
                             .duration_since(UNIX_EPOCH)
-                            .expect("System time is before Unix epoch");
+                            .expect("Time went backwards");
                         if let Ok(code) = generate_totp(account, duration) {
-                            print!(
-                                "Code for {}: {:0width$}\n",
-                                account.name,
-                                code,
-                                width = account.digits as usize
-                            );
-                            stdout.flush()?;
+                            if let Ok(mut clipboard) = Clipboard::new() {
+                                let _ = clipboard.set_text(format!("{}", code));
+
+                                // Show copied message temporarily
+                                execute!(stdout, MoveTo(0, term_height - 1))?;
+                                print!("Copied code for {} to clipboard!", account.name);
+                                stdout.flush()?;
+                                thread::sleep(std::time::Duration::from_secs(1));
+                            }
                         }
-                        return Ok(());
                     }
                 }
                 _ => {}
