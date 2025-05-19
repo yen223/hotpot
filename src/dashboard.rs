@@ -53,7 +53,7 @@ pub fn show() -> Result<(), AppError> {
         // Display UI
         execute!(stdout, MoveTo(0, 0), Clear(ClearType::All))?;
         if search_mode {
-            print!("Search: {}_", query);
+            print!("Search (ESC to exit): {}_", query);
         } else {
             print!("[F]ind\t[A]dd account\t[D]elete");
         }
@@ -120,13 +120,20 @@ pub fn show() -> Result<(), AppError> {
                     ..
                 })
                 | Event::Key(KeyEvent {
-                    code: KeyCode::Esc, ..
-                })
-                | Event::Key(KeyEvent {
                     code: KeyCode::Char('q'),
                     ..
                 }) => {
                     break;
+                }
+                Event::Key(KeyEvent {
+                    code: KeyCode::Esc, ..
+                }) => {
+                    if search_mode {
+                        search_mode = false;
+                        query.clear();
+                    } else {
+                        break;
+                    }
                 }
                 Event::Key(KeyEvent {
                     code: KeyCode::Char(c),
