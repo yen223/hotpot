@@ -9,7 +9,7 @@ use arboard::Clipboard;
 use crossterm::{
     cursor::{Hide, MoveTo, MoveToNextLine, Show},
     event::{Event, KeyCode, KeyEvent, KeyModifiers, poll, read},
-    execute,
+    execute, queue,
     style::{Attribute, Color, SetAttribute, SetBackgroundColor, SetForegroundColor},
     terminal::{Clear, ClearType, disable_raw_mode, enable_raw_mode, size},
 };
@@ -30,7 +30,8 @@ enum DashboardMode {
 pub fn show() -> Result<(), AppError> {
     let mut stdout = io::stdout();
     enable_raw_mode()?;
-    execute!(stdout, Clear(ClearType::All), Hide)?;
+    queue!(stdout, Clear(ClearType::All), Hide)?;
+    stdout.flush()?;
 
     let mut mode = DashboardMode::List;
     let mut selected = 0;
@@ -43,10 +44,7 @@ pub fn show() -> Result<(), AppError> {
         let max_display = (term_height - 4) as usize;
 
         // Clear screen and move to top
-        execute!(stdout, MoveTo(0, 0), Clear(ClearType::All))?;
-
-        // Render time-based progress bar
-        render_progress_bar(&mut stdout)?;
+        queue!(stdout, MoveTo(0, 0), Clear(ClearType::All))?;
 
         // Process accounts based on current mode
         let filtered_accounts = match &mode {
@@ -86,7 +84,10 @@ pub fn show() -> Result<(), AppError> {
                 print!("Select account to delete (ESC to cancel)");
             }
         }
-        execute!(stdout, MoveToNextLine(1))?;
+        queue!(stdout, MoveToNextLine(1))?;
+        // Render time-based progress bar
+        render_progress_bar(&mut stdout)?;
+        stdout.flush()?;
 
         // Render account list for applicable modes
         if !filtered_accounts.is_empty() {
@@ -120,7 +121,8 @@ pub fn show() -> Result<(), AppError> {
         }
     }
 
-    execute!(stdout, Show)?;
+    queue!(stdout, Show)?;
+    stdout.flush()?;
     disable_raw_mode()?;
     Ok(())
 }
@@ -134,14 +136,15 @@ fn render_progress_bar(stdout: &mut io::Stdout) -> Result<(), AppError> {
     let filled = (30 - secs_until_next_30) as usize;
     let empty = bar_width - filled;
 
-    execute!(stdout, SetForegroundColor(Color::Green))?;
+    queue!(stdout, SetForegroundColor(Color::Green))?;
     print!(
         "[{}{}] {:2}s\n\n",
         "=".repeat(filled),
         " ".repeat(empty),
         secs_until_next_30
     );
-    execute!(stdout, SetForegroundColor(Color::Reset))?;
+    queue!(stdout, SetForegroundColor(Color::Reset))?;
+    stdout.flush()?;
     Ok(())
 }
 
@@ -157,7 +160,7 @@ fn render_account_list(
         .expect("Time went backwards");
 
     for (i, account) in accounts.iter().take(max_display).enumerate() {
-        execute!(
+        queue!(
             stdout,
             MoveTo(0, i as u16 + 2),
             Clear(ClearType::CurrentLine)
@@ -172,7 +175,7 @@ fn render_account_list(
         };
 
         if i == selected {
-            execute!(
+            queue!(
                 stdout,
                 SetAttribute(Attribute::Bold),
                 SetForegroundColor(Color::Black),
@@ -192,7 +195,7 @@ fn render_account_list(
             );
             print!("{:0width$}", code, width = account.digits as usize);
         }
-        execute!(
+        queue!(
             stdout,
             SetAttribute(Attribute::Reset),
             SetBackgroundColor(Color::Reset),
@@ -309,7 +312,8 @@ fn handle_input(
 
 fn handle_add_mode(stdout: &mut io::Stdout) -> Result<InputResult, AppError> {
     // Temporarily restore terminal state
-    execute!(stdout, Clear(ClearType::All), MoveTo(0, 0), Show)?;
+    queue!(stdout, Clear(ClearType::All), MoveTo(0, 0), Show)?;
+    stdout.flush()?;
     disable_raw_mode()?;
 
     // Get account details
@@ -327,7 +331,8 @@ fn handle_add_mode(stdout: &mut io::Stdout) -> Result<InputResult, AppError> {
 
     // Restore dashboard state
     enable_raw_mode()?;
-    execute!(stdout, Clear(ClearType::All), Hide)?;
+    queue!(stdout, Clear(ClearType::All), Hide)?;
+    stdout.flush()?;
 
     Ok(InputResult::RefreshStorage)
 }
@@ -372,7 +377,8 @@ fn copy_code_to_clipboard(
             let _ = clipboard.set_text(format!("{}", code));
 
             // Show copied message temporarily
-            execute!(stdout, MoveTo(0, term_height - 1))?;
+            queue!(stdout, MoveTo(0, term_height - 1))?;
+            stdout.flush()?;
             print!("Copied code for {} to clipboard!", account.name);
             stdout.flush()?;
             thread::sleep(std::time::Duration::from_secs(1));
