@@ -10,7 +10,7 @@ use crossterm::{
     cursor::{Hide, MoveTo, MoveToNextLine, Show},
     event::{Event, KeyCode, KeyEvent, KeyModifiers, poll, read},
     execute, queue,
-    style::{Attribute, Color, SetAttribute, SetBackgroundColor, SetForegroundColor},
+    style::{Attribute, Color, Print, SetAttribute, SetBackgroundColor, SetForegroundColor},
     terminal::{Clear, ClearType, disable_raw_mode, enable_raw_mode, size},
 };
 use fuzzy_matcher::FuzzyMatcher;
@@ -31,7 +31,6 @@ pub fn show() -> Result<(), AppError> {
     let mut stdout = io::stdout();
     enable_raw_mode()?;
     queue!(stdout, Clear(ClearType::All), Hide)?;
-    stdout.flush()?;
 
     let mut mode = DashboardMode::List;
     let mut selected = 0;
@@ -72,22 +71,22 @@ pub fn show() -> Result<(), AppError> {
         // Render the header based on current mode
         match &mode {
             DashboardMode::List => {
-                print!("[F]ind [A]dd account [D]elete");
+                queue!(stdout, Print("[F]ind [A]dd account [D]elete"))?;
             }
             DashboardMode::Search(query) => {
-                print!("Search (ESC to exit): {}_", query);
+                queue!(stdout, Print(format!("Search (ESC to exit): {}_", query)))?;
             }
             DashboardMode::Add => {
-                print!("Add Account (ESC to cancel)");
+                queue!(stdout, Print("Add Account (ESC to cancel)"))?;
             }
             DashboardMode::Delete => {
-                print!("Select account to delete (ESC to cancel)");
+                queue!(stdout, Print("Select account to delete (ESC to cancel)"))?;
             }
         }
         queue!(stdout, MoveToNextLine(1))?;
+
         // Render time-based progress bar
         render_progress_bar(&mut stdout)?;
-        stdout.flush()?;
 
         // Render account list for applicable modes
         if !filtered_accounts.is_empty() {
@@ -100,12 +99,16 @@ pub fn show() -> Result<(), AppError> {
             )?;
         }
 
+        // Ensure everything is displayed before handling input
+        stdout.flush()?;
+
         // Process user input
         match handle_input(
             &mut mode,
             &mut selected,
             &filtered_accounts,
             term_height,
+            term_width,
             &mut stdout,
         )? {
             InputResult::Continue => {
@@ -122,7 +125,6 @@ pub fn show() -> Result<(), AppError> {
     }
 
     queue!(stdout, Show)?;
-    stdout.flush()?;
     disable_raw_mode()?;
     Ok(())
 }
@@ -137,13 +139,76 @@ fn render_progress_bar(stdout: &mut io::Stdout) -> Result<(), AppError> {
     let empty = bar_width - filled;
 
     queue!(stdout, SetForegroundColor(Color::Green))?;
-    print!(
-        "[{}{}] {:2}s\n\n",
-        "=".repeat(filled),
-        " ".repeat(empty),
-        secs_until_next_30
-    );
+    queue!(
+        stdout,
+        Print(format!(
+            "[{}{}] {:2}s\n\n",
+            "=".repeat(filled),
+            " ".repeat(empty),
+            secs_until_next_30
+        ))
+    )?;
     queue!(stdout, SetForegroundColor(Color::Reset))?;
+    stdout.flush()?;
+    Ok(())
+}
+
+fn render_account_row(
+    account: &crate::totp::Account,
+    idx: usize,
+    selected: bool,
+    term_width: u16,
+    copied: bool,
+    stdout: &mut io::Stdout,
+) -> Result<(), AppError> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("Time went backwards");
+    let code = generate_totp(account, now);
+    let max_width = min(term_width, 64);
+    let max_name_len = (max_width as usize).saturating_sub(10); // Leave room for code
+    let display_name = if account.name.len() > max_name_len {
+        format!("{}...", &account.name[..max_name_len.saturating_sub(3)])
+    } else {
+        account.name.clone()
+    };
+
+    queue!(
+        stdout,
+        MoveTo(0, idx as u16 + 2),
+        Clear(ClearType::CurrentLine)
+    )?;
+
+    if selected {
+        queue!(
+            stdout,
+            SetAttribute(Attribute::Bold),
+            SetForegroundColor(Color::Black),
+            SetBackgroundColor(Color::White)
+        )?;
+    }
+    queue!(stdout, Print(format!("  {} ", &display_name)))?;
+    if let Ok(code) = code {
+        queue!(
+            stdout,
+            Print(" ".repeat(
+                (max_width as usize)
+                    .saturating_sub(7)
+                    .saturating_sub(display_name.len())
+                    + 2
+            )),
+            Print(format!("{:0width$}", code, width = account.digits as usize))
+        )?;
+    }
+    queue!(
+        stdout,
+        SetAttribute(Attribute::Reset),
+        SetBackgroundColor(Color::Reset),
+        SetForegroundColor(Color::Reset)
+    )?;
+    if copied {
+        queue!(stdout, Print(" [copied]"))?;
+    }
     stdout.flush()?;
     Ok(())
 }
@@ -155,53 +220,8 @@ fn render_account_list(
     term_width: u16,
     stdout: &mut io::Stdout,
 ) -> Result<(), AppError> {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("Time went backwards");
-
     for (i, account) in accounts.iter().take(max_display).enumerate() {
-        queue!(
-            stdout,
-            MoveTo(0, i as u16 + 2),
-            Clear(ClearType::CurrentLine)
-        )?;
-        let code = generate_totp(account, now);
-        let max_width = min(term_width, 64);
-        let max_name_len = (max_width as usize).saturating_sub(10); // Leave room for code
-        let display_name = if account.name.len() > max_name_len {
-            format!("{}...", &account.name[..max_name_len.saturating_sub(3)])
-        } else {
-            account.name.clone()
-        };
-
-        if i == selected {
-            queue!(
-                stdout,
-                SetAttribute(Attribute::Bold),
-                SetForegroundColor(Color::Black),
-                SetBackgroundColor(Color::White)
-            )?;
-        }
-        print!("  {} ", &display_name);
-        if let Ok(code) = code {
-            print!(
-                "{}",
-                " ".repeat(
-                    (max_width as usize)
-                        .saturating_sub(7)
-                        .saturating_sub(display_name.len())
-                        + 2
-                )
-            );
-            print!("{:0width$}", code, width = account.digits as usize);
-        }
-        queue!(
-            stdout,
-            SetAttribute(Attribute::Reset),
-            SetBackgroundColor(Color::Reset),
-            SetForegroundColor(Color::Reset)
-        )?;
-        stdout.flush()?;
+        render_account_row(account, i, i == selected, term_width, false, stdout)?;
     }
     Ok(())
 }
@@ -217,6 +237,7 @@ fn handle_input(
     selected: &mut usize,
     accounts: &[&crate::totp::Account],
     term_height: u16,
+    term_width: u16,
     stdout: &mut io::Stdout,
 ) -> Result<InputResult, AppError> {
     if poll(std::time::Duration::from_millis(50))? {
@@ -295,7 +316,7 @@ fn handle_input(
                 if let Some(account) = accounts.get(*selected) {
                     match mode {
                         DashboardMode::List | DashboardMode::Search(_) => {
-                            copy_code_to_clipboard(account, term_height, stdout)?;
+                            copy_code_to_clipboard(account, *selected, term_width, stdout)?;
                         }
                         DashboardMode::Delete => {
                             return handle_delete_confirmation(account, stdout);
@@ -313,12 +334,10 @@ fn handle_input(
 fn handle_add_mode(stdout: &mut io::Stdout) -> Result<InputResult, AppError> {
     // Temporarily restore terminal state
     queue!(stdout, Clear(ClearType::All), MoveTo(0, 0), Show)?;
-    stdout.flush()?;
     disable_raw_mode()?;
 
     // Get account details
     print!("Enter account name: ");
-    stdout.flush()?;
     let mut name = String::new();
     io::stdin().read_line(&mut name)?;
     let name = name.trim();
@@ -332,7 +351,6 @@ fn handle_add_mode(stdout: &mut io::Stdout) -> Result<InputResult, AppError> {
     // Restore dashboard state
     enable_raw_mode()?;
     queue!(stdout, Clear(ClearType::All), Hide)?;
-    stdout.flush()?;
 
     Ok(InputResult::RefreshStorage)
 }
@@ -347,7 +365,6 @@ fn handle_delete_confirmation(
 
     // Confirm deletion
     print!("Delete account '{}'? [y/N] ", account.name);
-    stdout.flush()?;
     let mut confirm = String::new();
     io::stdin().read_line(&mut confirm)?;
 
@@ -366,7 +383,8 @@ fn handle_delete_confirmation(
 
 fn copy_code_to_clipboard(
     account: &crate::totp::Account,
-    term_height: u16,
+    selected_idx: usize,
+    term_width: u16,
     stdout: &mut io::Stdout,
 ) -> Result<(), AppError> {
     let duration = SystemTime::now()
@@ -375,13 +393,11 @@ fn copy_code_to_clipboard(
     if let Ok(code) = generate_totp(account, duration) {
         if let Ok(mut clipboard) = Clipboard::new() {
             let _ = clipboard.set_text(format!("{}", code));
-
-            // Show copied message temporarily
-            queue!(stdout, MoveTo(0, term_height - 1))?;
-            stdout.flush()?;
-            print!("Copied code for {} to clipboard!", account.name);
+            render_account_row(account, selected_idx, true, term_width, true, stdout)?;
             stdout.flush()?;
             thread::sleep(std::time::Duration::from_secs(1));
+            render_account_row(account, selected_idx, true, term_width, false, stdout)?;
+            stdout.flush()?;
         }
     }
     Ok(())
