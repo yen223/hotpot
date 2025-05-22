@@ -71,7 +71,7 @@ pub fn show() -> Result<(), AppError> {
         // Render the header based on current mode
         match &mode {
             DashboardMode::List => {
-                queue!(stdout, Print("[F]ind [A]dd [D]elete"))?;
+                queue!(stdout, Print("[F]ind [A]dd [D]elete [E]xport QR"))?;
             }
             DashboardMode::Search(query) => {
                 queue!(stdout, Print(format!("Search (ESC to exit): {}_", query)))?;
@@ -283,6 +283,11 @@ fn handle_input(
                             return handle_delete_confirmation(account, stdout);
                         }
                     }
+                    'e' => {
+                        if let Some(account) = accounts.get(*selected) {
+                            return handle_export_qr(account, stdout);
+                        }
+                    }
                     _ => {}
                 },
                 DashboardMode::Search(query) => {
@@ -433,4 +438,43 @@ fn copy_code_to_clipboard(
         }
     }
     Ok(())
+}
+
+fn handle_export_qr(
+    account: &crate::totp::Account,
+    stdout: &mut io::Stdout,
+) -> Result<InputResult, AppError> {
+    use qrcode::{QrCode, render::unicode};
+
+    // Clear screen and show cursor
+    queue!(stdout, Clear(ClearType::All), MoveTo(0, 0), Show)?;
+    stdout.flush()?;
+    disable_raw_mode()?;
+
+    // Generate the otpauth URI
+    let uri = account.generate_uri();
+    println!("QR Code for {}", account.name);
+    println!("\nGenerated URI: {}\n", uri);
+
+    // Generate and display QR code
+    let code = QrCode::new(uri.as_bytes())
+        .map_err(|e| AppError::new(format!("QR code error: {}", e)))?;
+    let qr_string = code
+        .render::<unicode::Dense1x2>()
+        .dark_color(unicode::Dense1x2::Light)
+        .light_color(unicode::Dense1x2::Dark)
+        .build();
+    println!("{}\n", qr_string);
+    println!("Press Enter to return to dashboard...");
+
+    // Wait for Enter key
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+
+    // Restore dashboard state
+    enable_raw_mode()?;
+    queue!(stdout, Clear(ClearType::All), Hide)?;
+    stdout.flush()?;
+
+    Ok(InputResult::Continue)
 }
