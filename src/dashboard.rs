@@ -9,7 +9,7 @@ use arboard::Clipboard;
 use crossterm::{
     cursor::{Hide, MoveTo, MoveToNextLine, Show},
     event::{Event, KeyCode, KeyEvent, KeyModifiers, poll, read},
-    execute, queue,
+    queue,
     style::{Attribute, Color, Print, SetAttribute, SetBackgroundColor, SetForegroundColor},
     terminal::{Clear, ClearType, disable_raw_mode, enable_raw_mode, size},
 };
@@ -24,7 +24,6 @@ enum DashboardMode {
     List,
     Search(String),
     Add,
-    Delete,
 }
 
 pub fn show() -> Result<(), AppError> {
@@ -35,6 +34,7 @@ pub fn show() -> Result<(), AppError> {
     let mut mode = DashboardMode::List;
     let mut selected = 0;
     let matcher = SkimMatcherV2::default();
+    let mut name_buffer = String::with_capacity(64);
     // Get storage at the start of each loop iteration
     let mut storage = get_storage()?;
     loop {
@@ -47,7 +47,7 @@ pub fn show() -> Result<(), AppError> {
 
         // Process accounts based on current mode
         let filtered_accounts = match &mode {
-            DashboardMode::List | DashboardMode::Delete => {
+            DashboardMode::List => {
                 // In list mode, show all accounts in order
                 storage.accounts.iter().collect::<Vec<_>>()
             }
@@ -65,22 +65,24 @@ pub fn show() -> Result<(), AppError> {
                 matches.sort_by_key(|(score, _)| -score);
                 matches.into_iter().map(|(_, acc)| acc).collect()
             }
-            DashboardMode::Add => Vec::new(), // No accounts shown in add mode
+            DashboardMode::Add => storage.accounts.iter().collect::<Vec<_>>(), // Show accounts in add mode
         };
 
         // Render the header based on current mode
         match &mode {
             DashboardMode::List => {
-                queue!(stdout, Print("[F]ind [A]dd account [D]elete"))?;
+                queue!(stdout, Print("[F]ind [A]dd [D]elete"))?;
             }
             DashboardMode::Search(query) => {
                 queue!(stdout, Print(format!("Search (ESC to exit): {}_", query)))?;
             }
             DashboardMode::Add => {
-                queue!(stdout, Print("Add Account (ESC to cancel)"))?;
-            }
-            DashboardMode::Delete => {
-                queue!(stdout, Print("Select account to delete (ESC to cancel)"))?;
+                queue!(
+                    stdout,
+                    Print("Enter account name (ESC to cancel): "),
+                    Print(&name_buffer),
+                    Print("_")
+                )?;
             }
         }
         queue!(stdout, MoveToNextLine(1))?;
@@ -110,6 +112,7 @@ pub fn show() -> Result<(), AppError> {
             term_height,
             term_width,
             &mut stdout,
+            &mut name_buffer,
         )? {
             InputResult::Continue => {
                 // Continue the loop
@@ -191,12 +194,14 @@ fn render_account_row(
     if let Ok(code) = code {
         queue!(
             stdout,
-            Print(" ".repeat(
-                (max_width as usize)
-                    .saturating_sub(7)
-                    .saturating_sub(display_name.len())
-                    + 2
-            )),
+            Print(
+                " ".repeat(
+                    (max_width as usize)
+                        .saturating_sub(7)
+                        .saturating_sub(display_name.len())
+                        + 2
+                )
+            ),
             Print(format!("{:0width$}", code, width = account.digits as usize))
         )?;
     }
@@ -239,6 +244,7 @@ fn handle_input(
     term_height: u16,
     term_width: u16,
     stdout: &mut io::Stdout,
+    name_buffer: &mut String,
 ) -> Result<InputResult, AppError> {
     if poll(std::time::Duration::from_millis(50))? {
         match read()? {
@@ -270,11 +276,12 @@ fn handle_input(
                     }
                     'a' => {
                         *mode = DashboardMode::Add;
-                        return handle_add_mode(stdout);
+                        name_buffer.clear();
                     }
                     'd' => {
-                        *mode = DashboardMode::Delete;
-                        *selected = 0;
+                        if let Some(account) = accounts.get(*selected) {
+                            return handle_delete_confirmation(account, stdout);
+                        }
                     }
                     _ => {}
                 },
@@ -282,15 +289,23 @@ fn handle_input(
                     query.push(c);
                     *selected = 0;
                 }
-                _ => {}
+                DashboardMode::Add => {
+                    name_buffer.push(c);
+                }
             },
             Event::Key(KeyEvent {
                 code: KeyCode::Backspace,
                 ..
             }) => {
-                if let DashboardMode::Search(query) = mode {
-                    query.pop();
-                    *selected = 0;
+                match mode {
+                    DashboardMode::Search(query) => {
+                        query.pop();
+                        *selected = 0;
+                    }
+                    DashboardMode::Add => {
+                        name_buffer.pop();
+                    }
+                    _ => {}
                 }
             }
             Event::Key(KeyEvent {
@@ -313,15 +328,23 @@ fn handle_input(
                 code: KeyCode::Enter,
                 ..
             }) => {
-                if let Some(account) = accounts.get(*selected) {
-                    match mode {
-                        DashboardMode::List | DashboardMode::Search(_) => {
-                            copy_code_to_clipboard(account, *selected, term_width, stdout)?;
+                match mode {
+                    DashboardMode::Add => {
+                        if !name_buffer.trim().is_empty() {
+                            let result = handle_add_mode(stdout, &name_buffer)?;
+                            *mode = DashboardMode::List;  // Reset to List mode
+                            return Ok(result);
                         }
-                        DashboardMode::Delete => {
-                            return handle_delete_confirmation(account, stdout);
+                    }
+                    _ => {
+                        if let Some(account) = accounts.get(*selected) {
+                            match mode {
+                                DashboardMode::List | DashboardMode::Search(_) => {
+                                    copy_code_to_clipboard(account, *selected, term_width, stdout)?;
+                                }
+                                _ => {}
+                            }
                         }
-                        _ => {}
                     }
                 }
             }
@@ -331,20 +354,15 @@ fn handle_input(
     Ok(InputResult::Continue)
 }
 
-fn handle_add_mode(stdout: &mut io::Stdout) -> Result<InputResult, AppError> {
+fn handle_add_mode(stdout: &mut io::Stdout, name: &str) -> Result<InputResult, AppError> {
     // Temporarily restore terminal state
     queue!(stdout, Clear(ClearType::All), MoveTo(0, 0), Show)?;
+    stdout.flush()?;
     disable_raw_mode()?;
-
-    // Get account details
-    print!("Enter account name: ");
-    let mut name = String::new();
-    io::stdin().read_line(&mut name)?;
-    let name = name.trim();
 
     if let Ok(secret) = prompt_password("Enter the Base32 secret: ") {
         if let Ok(()) = save_account(name, &secret) {
-            println!("Added account: {}", name);
+            queue!(stdout, Print(format!("Added account: {}", name)))?;
         }
     }
 
@@ -359,26 +377,40 @@ fn handle_delete_confirmation(
     account: &crate::totp::Account,
     stdout: &mut io::Stdout,
 ) -> Result<InputResult, AppError> {
-    // Temporarily restore terminal state
-    execute!(stdout, Clear(ClearType::All), MoveTo(0, 0), Show)?;
+    // Clear only the first line and show cursor
+    queue!(
+        stdout,
+        MoveTo(0, 0),
+        Clear(ClearType::CurrentLine),
+        Show,
+        Print(format!("Delete account '{}'? [y/N] ", account.name))
+    )?;
+    stdout.flush()?;
     disable_raw_mode()?;
 
-    // Confirm deletion
-    print!("Delete account '{}'? [y/N] ", account.name);
+    // Get confirmation
     let mut confirm = String::new();
     io::stdin().read_line(&mut confirm)?;
 
-    if confirm.trim().eq_ignore_ascii_case("y") {
+    let result = if confirm.trim().eq_ignore_ascii_case("y") {
         if let Ok(()) = delete_account(&account.name) {
-            println!("Deleted account: {}", account.name);
+            // Clear confirmation message
+            queue!(stdout, MoveTo(0, 0), Clear(ClearType::CurrentLine))?;
+            stdout.flush()?;
+            InputResult::RefreshStorage
+        } else {
+            InputResult::Continue
         }
-    }
+    } else {
+        InputResult::Continue
+    };
 
     // Restore dashboard state
     enable_raw_mode()?;
-    execute!(stdout, Clear(ClearType::All), Hide)?;
+    queue!(stdout, Hide)?;
+    stdout.flush()?;
 
-    Ok(InputResult::RefreshStorage)
+    Ok(result)
 }
 
 fn copy_code_to_clipboard(
