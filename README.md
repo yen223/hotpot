@@ -12,6 +12,7 @@ This was largely vibe-coded, so use at your own risk!
 - 🕒 TOTP (RFC 6238) code generation
 - 💻 Simple command-line interface
 - 🗂️ Interactive dashboard with real-time codes and search
+- 📱 QR code export for easy mobile app setup
 
 ## Installation
 
@@ -42,7 +43,10 @@ Just run `hotpot` to open the interactive dashboard where you can:
 - See a progress bar showing when codes will refresh
 - Press [F] to search accounts using fuzzy matching
 - Use up/down arrows to navigate
-- Press Enter to show a selected code
+- Press Enter to copy code to clipboard
+- Press [A] to add a new account
+- Press [D] to delete the selected account
+- Press [E] to export QR code for the selected account
 - Press 'q', 'Esc', or Ctrl+C to exit
 
 ### Generate a single code
@@ -61,6 +65,16 @@ hotpot code github
 ```bash
 hotpot delete <account-name>
 ```
+
+### Export QR Code
+
+You can export a QR code for an account either through the dashboard (press [E]) or using the command:
+
+```bash
+hotpot export-qr --name <account-name>
+```
+
+This will display a QR code in the terminal that can be scanned by authenticator apps.
 
 ## Security
 
@@ -90,6 +104,8 @@ The binary will be available at `target/release/hotpot`
 - rpassword: Secure password/secret input
 - crossterm: Terminal manipulation and display
 - fuzzy-matcher: Interactive fuzzy searching
+- qrcode: QR code generation
+- arboard: Clipboard management
 
 ## License
 
