@@ -335,18 +335,16 @@ pub fn show() -> Result<(), AppError> {
     let mut storage = get_storage()?;
 
     // Initialize screen buffer
-    let (mut term_width, mut term_height) = size()?;
+    let (term_width, term_height) = size()?;
     let mut buffer = ScreenBuffer::new(term_width, term_height);
 
     loop {
         // Check if terminal size changed
         let (new_width, new_height) = size()?;
-        if new_width != term_width || new_height != term_height {
-            term_width = new_width;
-            term_height = new_height;
-            buffer = ScreenBuffer::new(term_width, term_height);
+        if new_width != buffer.width || new_height != buffer.height {
+            buffer = ScreenBuffer::new(new_width, new_height);
         }
-        let max_display = (term_height - 4) as usize;
+        let max_display = (buffer.height - 4) as usize;
 
         // Clear buffer for new frame
         buffer.clear();
@@ -361,12 +359,9 @@ pub fn show() -> Result<(), AppError> {
         buffer.render_progress_bar();
 
         // Render account list to buffer
-        if !filtered_accounts.is_empty() {
-            let display_count = min(filtered_accounts.len(), max_display);
-            for (idx, account) in filtered_accounts.iter().take(display_count).enumerate() {
-                let is_selected = idx == selected;
-                buffer.render_account_line(account, 4 + idx as u16, is_selected, &copied_state)?;
-            }
+        for (idx, account) in filtered_accounts.iter().take(max_display).enumerate() {
+            let is_selected = idx == selected;
+            buffer.render_account_line(account, 4 + idx as u16, is_selected, &copied_state)?;
         }
 
         // Flush buffer to screen
@@ -377,8 +372,8 @@ pub fn show() -> Result<(), AppError> {
             &mut mode,
             &mut selected,
             &filtered_accounts,
-            term_height,
-            term_width,
+            buffer.height,
+            buffer.width,
             &mut stdout,
             &mut name_buffer,
             &mut copied_state,
