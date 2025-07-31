@@ -86,41 +86,57 @@ impl ScreenBuffer {
         for (row, line) in self.lines.iter().enumerate() {
             if !line.content.is_empty() {
                 queue!(stdout, MoveTo(0, row as u16))?;
-
-                if line.is_highlighted {
-                    if let Some(split_pos) = line.copied_split_pos {
-                        // Render highlighted part normally, then "copied" without highlighting
-                        let (highlighted_part, copied_part) = line.content.split_at(split_pos);
-                        queue!(
-                            stdout,
-                            SetAttribute(Attribute::Bold),
-                            SetForegroundColor(Color::Black),
-                            SetBackgroundColor(Color::White),
-                            Print(highlighted_part),
-                            SetAttribute(Attribute::Reset),
-                            SetForegroundColor(Color::Reset),
-                            SetBackgroundColor(Color::Reset),
-                            Print(copied_part)
-                        )?;
-                    } else {
-                        // Regular highlighted line
-                        queue!(
-                            stdout,
-                            SetAttribute(Attribute::Bold),
-                            SetForegroundColor(Color::Black),
-                            SetBackgroundColor(Color::White),
-                            Print(&line.content),
-                            SetAttribute(Attribute::Reset),
-                            SetForegroundColor(Color::Reset),
-                            SetBackgroundColor(Color::Reset)
-                        )?;
-                    }
-                } else {
-                    queue!(stdout, Print(&line.content))?;
-                }
+                self.render_line_content(stdout, line)?;
             }
         }
         stdout.flush()?;
+        Ok(())
+    }
+
+    fn render_line_content(&self, stdout: &mut io::Stdout, line: &BufferLine) -> Result<(), AppError> {
+        if line.is_highlighted {
+            if let Some(split_pos) = line.copied_split_pos {
+                self.render_highlighted_with_copied(stdout, &line.content, split_pos)
+            } else {
+                self.render_highlighted_content(stdout, &line.content)
+            }
+        } else {
+            self.render_normal_content(stdout, &line.content)
+        }
+    }
+
+    fn render_highlighted_with_copied(&self, stdout: &mut io::Stdout, content: &str, split_pos: usize) -> Result<(), AppError> {
+        let (highlighted_part, copied_part) = content.split_at(split_pos);
+        queue!(
+            stdout,
+            SetAttribute(Attribute::Bold),
+            SetForegroundColor(Color::Black),
+            SetBackgroundColor(Color::White),
+            Print(highlighted_part),
+            SetAttribute(Attribute::Reset),
+            SetForegroundColor(Color::Reset),
+            SetBackgroundColor(Color::Reset),
+            Print(copied_part)
+        )?;
+        Ok(())
+    }
+
+    fn render_highlighted_content(&self, stdout: &mut io::Stdout, content: &str) -> Result<(), AppError> {
+        queue!(
+            stdout,
+            SetAttribute(Attribute::Bold),
+            SetForegroundColor(Color::Black),
+            SetBackgroundColor(Color::White),
+            Print(content),
+            SetAttribute(Attribute::Reset),
+            SetForegroundColor(Color::Reset),
+            SetBackgroundColor(Color::Reset)
+        )?;
+        Ok(())
+    }
+
+    fn render_normal_content(&self, stdout: &mut io::Stdout, content: &str) -> Result<(), AppError> {
+        queue!(stdout, Print(content))?;
         Ok(())
     }
 
