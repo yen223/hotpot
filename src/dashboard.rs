@@ -1,13 +1,12 @@
 use std::{
     cmp::min,
     io::{self, Write},
-    thread,
     time::{SystemTime, UNIX_EPOCH},
 };
 
 use arboard::Clipboard;
 use crossterm::{
-    cursor::{Hide, MoveTo, MoveToNextLine, Show},
+    cursor::{Hide, MoveTo, Show},
     event::{Event, KeyCode, KeyEvent, KeyModifiers, poll, read},
     queue,
     style::{Attribute, Color, Print, SetAttribute, SetBackgroundColor, SetForegroundColor},
@@ -18,6 +17,151 @@ use fuzzy_matcher::skim::SkimMatcherV2;
 use rpassword::prompt_password;
 
 use crate::{AppError, delete_account, get_storage, save_account, totp::generate_totp};
+
+// Screen buffer for double buffering
+struct ScreenBuffer {
+    lines: Vec<BufferLine>,
+    width: u16,
+    height: u16,
+}
+
+#[derive(Clone)]
+struct BufferLine {
+    content: String,
+    is_highlighted: bool,
+}
+
+impl ScreenBuffer {
+    fn new(width: u16, height: u16) -> Self {
+        Self {
+            lines: vec![
+                BufferLine {
+                    content: String::new(),
+                    is_highlighted: false
+                };
+                height as usize
+            ],
+            width,
+            height,
+        }
+    }
+
+    fn clear(&mut self) {
+        for line in &mut self.lines {
+            line.content.clear();
+            line.is_highlighted = false;
+        }
+    }
+
+    fn write_line(&mut self, row: u16, content: String) {
+        if row < self.height {
+            self.lines[row as usize].content = content;
+            self.lines[row as usize].is_highlighted = false;
+        }
+    }
+
+    fn write_highlighted_line(&mut self, row: u16, content: String) {
+        if row < self.height {
+            self.lines[row as usize].content = content;
+            self.lines[row as usize].is_highlighted = true;
+        }
+    }
+
+    fn flush_to_screen(&self, stdout: &mut io::Stdout) -> Result<(), AppError> {
+        queue!(stdout, MoveTo(0, 0), Clear(ClearType::All))?;
+        for (row, line) in self.lines.iter().enumerate() {
+            if !line.content.is_empty() {
+                queue!(stdout, MoveTo(0, row as u16))?;
+
+                if line.is_highlighted {
+                    queue!(
+                        stdout,
+                        SetAttribute(Attribute::Bold),
+                        SetForegroundColor(Color::Black),
+                        SetBackgroundColor(Color::White),
+                        Print(&line.content),
+                        SetAttribute(Attribute::Reset),
+                        SetForegroundColor(Color::Reset),
+                        SetBackgroundColor(Color::Reset)
+                    )?;
+                } else {
+                    queue!(stdout, Print(&line.content))?;
+                }
+            }
+        }
+        stdout.flush()?;
+        Ok(())
+    }
+
+    fn render_header(&mut self, mode: &DashboardMode, name_buffer: &str) {
+        let header = match mode {
+            DashboardMode::List => "[F]ind [A]dd [D]elete [E]xport QR [Q]uit".to_string(),
+            DashboardMode::Search(query) => format!("Search (ESC to exit): {}_", query),
+            DashboardMode::Add => format!("Enter account name (ESC to cancel): {}_", name_buffer),
+        };
+        self.write_line(0, header);
+    }
+
+    fn render_progress_bar(&mut self) {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("Time went backwards");
+        let secs_until_next_30 = 30 - (now.as_secs() % 30);
+        let bar_width = 30;
+        let filled = (30 - secs_until_next_30) as usize;
+        let empty = bar_width - filled;
+
+        let progress_line = format!(
+            "|{}{}| {:2}s",
+            "█".repeat(filled),
+            " ".repeat(empty),
+            secs_until_next_30
+        );
+        self.write_line(2, progress_line);
+    }
+
+    fn render_account_line(
+        &mut self,
+        account: &crate::totp::Account,
+        row: u16,
+        selected: bool,
+    ) -> Result<(), AppError> {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("Time went backwards");
+        let code = generate_totp(account, now)?;
+
+        let max_width = min(self.width, 64);
+        let max_name_len = (max_width as usize).saturating_sub(8); // Leave room for code
+        let display_name = if account.name.len() > max_name_len {
+            format!("{}...", &account.name[..max_name_len.saturating_sub(3)])
+        } else {
+            account.name.clone()
+        };
+
+        let spacing = " ".repeat(
+            (max_width as usize)
+                .saturating_sub(6)
+                .saturating_sub(display_name.len())
+                + 2,
+        );
+
+        let line = format!(
+            " {} {}{:0width$} ",
+            display_name,
+            spacing,
+            code,
+            width = account.digits as usize
+        );
+
+        if selected {
+            self.write_highlighted_line(row, line);
+        } else {
+            self.write_line(row, line);
+        }
+        Ok(())
+    }
+}
 
 // Define the dashboard modes
 enum DashboardMode {
@@ -37,13 +181,23 @@ pub fn show() -> Result<(), AppError> {
     let mut name_buffer = String::with_capacity(64);
     // Get storage at the start of each loop iteration
     let mut storage = get_storage()?;
+
+    // Initialize screen buffer
+    let (mut term_width, mut term_height) = size()?;
+    let mut buffer = ScreenBuffer::new(term_width, term_height);
+
     loop {
-        // Get terminal size and calculate display area
-        let (term_width, term_height) = size()?;
+        // Check if terminal size changed
+        let (new_width, new_height) = size()?;
+        if new_width != term_width || new_height != term_height {
+            term_width = new_width;
+            term_height = new_height;
+            buffer = ScreenBuffer::new(term_width, term_height);
+        }
         let max_display = (term_height - 4) as usize;
 
-        // Clear screen and move to top
-        queue!(stdout, MoveTo(0, 0), Clear(ClearType::All))?;
+        // Clear buffer for new frame
+        buffer.clear();
 
         // Process accounts based on current mode
         let filtered_accounts = match &mode {
@@ -68,41 +222,21 @@ pub fn show() -> Result<(), AppError> {
             DashboardMode::Add => storage.accounts.iter().collect::<Vec<_>>(), // Show accounts in add mode
         };
 
-        // Render the header based on current mode
-        match &mode {
-            DashboardMode::List => {
-                queue!(stdout, Print("[F]ind [A]dd [D]elete [E]xport QR [Q]uit"))?;
-            }
-            DashboardMode::Search(query) => {
-                queue!(stdout, Print(format!("Search (ESC to exit): {}_", query)))?;
-            }
-            DashboardMode::Add => {
-                queue!(
-                    stdout,
-                    Print("Enter account name (ESC to cancel): "),
-                    Print(&name_buffer),
-                    Print("_")
-                )?;
-            }
-        }
-        queue!(stdout, MoveToNextLine(1))?;
+        // Render to buffer
+        buffer.render_header(&mode, &name_buffer);
+        buffer.render_progress_bar();
 
-        // Render time-based progress bar
-        render_progress_bar(&mut stdout)?;
-
-        // Render account list for applicable modes
+        // Render account list to buffer
         if !filtered_accounts.is_empty() {
-            render_account_list(
-                &filtered_accounts,
-                selected,
-                max_display,
-                term_width,
-                &mut stdout,
-            )?;
+            let display_count = min(filtered_accounts.len(), max_display);
+            for (idx, account) in filtered_accounts.iter().take(display_count).enumerate() {
+                let is_selected = idx == selected;
+                buffer.render_account_line(account, 4 + idx as u16, is_selected)?;
+            }
         }
 
-        // Ensure everything is displayed before handling input
-        stdout.flush()?;
+        // Flush buffer to screen
+        buffer.flush_to_screen(&mut stdout)?;
 
         // Process user input
         match handle_input(
@@ -132,105 +266,6 @@ pub fn show() -> Result<(), AppError> {
     Ok(())
 }
 
-fn render_progress_bar(stdout: &mut io::Stdout) -> Result<(), AppError> {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("Time went backwards");
-    let secs_until_next_30 = 30 - (now.as_secs() % 30);
-    let bar_width = 30;
-    let filled = (30 - secs_until_next_30) as usize;
-    let empty = bar_width - filled;
-
-    queue!(stdout, SetForegroundColor(Color::Green))?;
-    queue!(
-        stdout,
-        Print(format!(
-            "[{}{}] {:2}s\n\n",
-            "=".repeat(filled),
-            " ".repeat(empty),
-            secs_until_next_30
-        ))
-    )?;
-    queue!(stdout, SetForegroundColor(Color::Reset))?;
-    stdout.flush()?;
-    Ok(())
-}
-
-fn render_account_row(
-    account: &crate::totp::Account,
-    idx: usize,
-    selected: bool,
-    term_width: u16,
-    copied: bool,
-    stdout: &mut io::Stdout,
-) -> Result<(), AppError> {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("Time went backwards");
-    let code = generate_totp(account, now);
-    let max_width = min(term_width, 64);
-    let max_name_len = (max_width as usize).saturating_sub(10); // Leave room for code
-    let display_name = if account.name.len() > max_name_len {
-        format!("{}...", &account.name[..max_name_len.saturating_sub(3)])
-    } else {
-        account.name.clone()
-    };
-
-    queue!(
-        stdout,
-        MoveTo(0, idx as u16 + 2),
-        Clear(ClearType::CurrentLine)
-    )?;
-
-    if selected {
-        queue!(
-            stdout,
-            SetAttribute(Attribute::Bold),
-            SetForegroundColor(Color::Black),
-            SetBackgroundColor(Color::White)
-        )?;
-    }
-    queue!(stdout, Print(format!("  {} ", &display_name)))?;
-    if let Ok(code) = code {
-        queue!(
-            stdout,
-            Print(
-                " ".repeat(
-                    (max_width as usize)
-                        .saturating_sub(7)
-                        .saturating_sub(display_name.len())
-                        + 2
-                )
-            ),
-            Print(format!("{:0width$}", code, width = account.digits as usize))
-        )?;
-    }
-    queue!(
-        stdout,
-        SetAttribute(Attribute::Reset),
-        SetBackgroundColor(Color::Reset),
-        SetForegroundColor(Color::Reset)
-    )?;
-    if copied {
-        queue!(stdout, Print(" [copied]"))?;
-    }
-    stdout.flush()?;
-    Ok(())
-}
-
-fn render_account_list(
-    accounts: &[&crate::totp::Account],
-    selected: usize,
-    max_display: usize,
-    term_width: u16,
-    stdout: &mut io::Stdout,
-) -> Result<(), AppError> {
-    for (i, account) in accounts.iter().take(max_display).enumerate() {
-        render_account_row(account, i, i == selected, term_width, false, stdout)?;
-    }
-    Ok(())
-}
-
 enum InputResult {
     Continue,
     Exit,
@@ -246,7 +281,7 @@ fn handle_input(
     stdout: &mut io::Stdout,
     name_buffer: &mut String,
 ) -> Result<InputResult, AppError> {
-    if poll(std::time::Duration::from_millis(50))? {
+    if poll(std::time::Duration::from_millis(250))? {
         match read()? {
             Event::Key(KeyEvent {
                 code: KeyCode::Char('c'),
@@ -301,18 +336,16 @@ fn handle_input(
             Event::Key(KeyEvent {
                 code: KeyCode::Backspace,
                 ..
-            }) => {
-                match mode {
-                    DashboardMode::Search(query) => {
-                        query.pop();
-                        *selected = 0;
-                    }
-                    DashboardMode::Add => {
-                        name_buffer.pop();
-                    }
-                    _ => {}
+            }) => match mode {
+                DashboardMode::Search(query) => {
+                    query.pop();
+                    *selected = 0;
                 }
-            }
+                DashboardMode::Add => {
+                    name_buffer.pop();
+                }
+                _ => {}
+            },
             Event::Key(KeyEvent {
                 code: KeyCode::Up, ..
             }) => {
@@ -337,7 +370,7 @@ fn handle_input(
                     DashboardMode::Add => {
                         if !name_buffer.trim().is_empty() {
                             let result = handle_add_mode(stdout, &name_buffer)?;
-                            *mode = DashboardMode::List;  // Reset to List mode
+                            *mode = DashboardMode::List; // Reset to List mode
                             return Ok(result);
                         }
                     }
@@ -420,9 +453,9 @@ fn handle_delete_confirmation(
 
 fn copy_code_to_clipboard(
     account: &crate::totp::Account,
-    selected_idx: usize,
-    term_width: u16,
-    stdout: &mut io::Stdout,
+    _selected_idx: usize,
+    _term_width: u16,
+    _stdout: &mut io::Stdout,
 ) -> Result<(), AppError> {
     let duration = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -430,11 +463,7 @@ fn copy_code_to_clipboard(
     if let Ok(code) = generate_totp(account, duration) {
         if let Ok(mut clipboard) = Clipboard::new() {
             let _ = clipboard.set_text(format!("{}", code));
-            render_account_row(account, selected_idx, true, term_width, true, stdout)?;
-            stdout.flush()?;
-            thread::sleep(std::time::Duration::from_secs(1));
-            render_account_row(account, selected_idx, true, term_width, false, stdout)?;
-            stdout.flush()?;
+            // Visual feedback is now handled by the main rendering loop
         }
     }
     Ok(())
@@ -457,8 +486,8 @@ fn handle_export_qr(
     println!("\nGenerated URI: {}\n", uri);
 
     // Generate and display QR code
-    let code = QrCode::new(uri.as_bytes())
-        .map_err(|e| AppError::new(format!("QR code error: {}", e)))?;
+    let code =
+        QrCode::new(uri.as_bytes()).map_err(|e| AppError::new(format!("QR code error: {}", e)))?;
     let qr_string = code
         .render::<unicode::Dense1x2>()
         .dark_color(unicode::Dense1x2::Light)
