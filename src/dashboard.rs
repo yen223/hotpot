@@ -71,7 +71,7 @@ pub fn show() -> Result<(), AppError> {
         // Render the header based on current mode
         match &mode {
             DashboardMode::List => {
-                queue!(stdout, Print("[F]ind [A]dd [D]elete [E]xport QR"))?;
+                queue!(stdout, Print("[F]ind [A]dd [D]elete [E]xport QR [Q]uit"))?;
             }
             DashboardMode::Search(query) => {
                 queue!(stdout, Print(format!("Search (ESC to exit): {}_", query)))?;

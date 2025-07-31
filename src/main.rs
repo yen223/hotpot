@@ -4,6 +4,7 @@ use rpassword::prompt_password;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::time::{SystemTime, UNIX_EPOCH};
+use std::io::{self, Write};
 
 mod dashboard;
 mod totp;
@@ -17,6 +18,10 @@ const STORAGE_KEY: &str = "_hotpot_storage";
 #[command(name = "hotpot")]
 #[command(about = "A simple CLI for TOTP-based 2FA", long_about = None)]
 struct Cli {
+    /// Load account from QR code image
+    #[arg(short = 'l', long = "load-image", value_name = "IMAGE_PATH")]
+    load_image: Option<String>,
+    
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -125,16 +130,124 @@ fn export_qr_code(name: &str, secret: &str) -> Result<(), AppError> {
     Ok(())
 }
 
+fn load_qr_code_from_image(image_path: &str) -> Result<String, AppError> {
+    use image::ImageReader;
+    use rqrr::PreparedImage;
+
+    // Load and decode the image
+    let img = ImageReader::open(image_path)
+        .map_err(|e| AppError::new(format!("Failed to open image: {}", e)))?
+        .decode()
+        .map_err(|e| AppError::new(format!("Failed to decode image: {}", e)))?;
+
+    // Convert to luma (grayscale) for QR code detection
+    let luma_img = img.to_luma8();
+    let mut prepared_img = PreparedImage::prepare(luma_img);
+    
+    // Find and decode QR codes
+    let grids = prepared_img.detect_grids();
+    if grids.is_empty() {
+        return Err(AppError::new("No QR code found in image"));
+    }
+
+    // Decode the first QR code found
+    let (_, content) = grids[0].decode()
+        .map_err(|e| AppError::new(format!("Failed to decode QR code: {:?}", e)))?;
+
+    Ok(content)
+}
+
+fn parse_otpauth_uri(uri: &str) -> Result<(String, String, String), AppError> {
+    if !uri.starts_with("otpauth://totp/") {
+        return Err(AppError::new("Invalid otpauth URI format"));
+    }
+
+    // Parse the URI manually
+    let url = url::Url::parse(uri)
+        .map_err(|e| AppError::new(format!("Failed to parse URI: {}", e)))?;
+
+    // Extract account name from path
+    let path = url.path().trim_start_matches('/');
+    let account_name = if path.contains(':') {
+        // Format: issuer:account or account
+        path.split(':').last().unwrap_or(path).to_string()
+    } else {
+        path.to_string()
+    };
+
+    // Extract secret from query parameters
+    let mut secret = String::new();
+    let mut issuer = String::new();
+    
+    for (key, value) in url.query_pairs() {
+        match key.as_ref() {
+            "secret" => secret = value.to_string(),
+            "issuer" => issuer = value.to_string(),
+            _ => {}
+        }
+    }
+
+    if secret.is_empty() {
+        return Err(AppError::new("No secret found in otpauth URI"));
+    }
+
+    // Use issuer if available, otherwise use a default
+    if issuer.is_empty() {
+        issuer = "Unknown".to_string();
+    }
+
+    Ok((account_name, secret, issuer))
+}
+
+fn prompt_account_name(default: &str) -> Result<String, AppError> {
+    print!("Enter account name [{}]: ", default);
+    io::stdout().flush().map_err(AppError::from)?;
+    
+    let mut input = String::new();
+    io::stdin().read_line(&mut input).map_err(AppError::from)?;
+    
+    let name = input.trim();
+    if name.is_empty() {
+        Ok(default.to_string())
+    } else {
+        Ok(name.to_string())
+    }
+}
+
 fn main() {
     let cli = Cli::parse();
 
-    let result = match &cli.command.as_ref() {
-        None => dashboard::show(),
-        Some(Commands::Add { name }) => match prompt_password("Enter the Base32 secret: ") {
+    let result = match (&cli.load_image, &cli.command) {
+        (Some(image_path), None) => {
+            // Load account from QR code image
+            match load_qr_code_from_image(image_path) {
+                Ok(uri) => {
+                    println!("Found otpauth URI: {}", uri);
+                    match parse_otpauth_uri(&uri) {
+                        Ok((default_name, secret, issuer)) => {
+                            match prompt_account_name(&default_name) {
+                                Ok(account_name) => {
+                                    save_account(&account_name, &secret)
+                                        .map(|_| println!("Added account: {} (from {})", account_name, issuer))
+                                }
+                                Err(e) => Err(e),
+                            }
+                        }
+                        Err(e) => Err(e),
+                    }
+                }
+                Err(e) => Err(e),
+            }
+        }
+        (Some(_), Some(_)) => {
+            Err(AppError::new("Cannot use --load-image with subcommands"))
+        }
+        (None, None) => dashboard::show(),
+        (None, Some(Commands::Add { name })) => match prompt_password("Enter the Base32 secret: ") {
             Ok(secret) => save_account(name, &secret).map(|_| println!("Added account: {}", name)),
             Err(err) => Err(AppError::new(err.to_string())),
         },
-        Some(Commands::Code { name }) => get_account(name).and_then(|account| {
+        (None, Some(Commands::Code { name })) => get_account(name).and_then(|account| {
             let duration = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("System time is before Unix epoch");
@@ -147,10 +260,10 @@ fn main() {
                 );
             })
         }),
-        Some(Commands::Delete { name }) => {
+        (None, Some(Commands::Delete { name })) => {
             delete_account(name).map(|_| println!("Deleted account: {}", name))
         }
-        Some(Commands::ExportQr { name }) => {
+        (None, Some(Commands::ExportQr { name })) => {
             get_account(name).and_then(|account| export_qr_code(name, &account.secret))
         }
     };
