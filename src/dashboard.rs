@@ -844,3 +844,309 @@ fn extract_secret_from_otpauth(uri: &str) -> Option<String> {
     let pairs: std::collections::HashMap<_, _> = parsed.query_pairs().collect();
     pairs.get("secret").map(|s| s.to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::totp::Account;
+    use crate::Storage;
+    use std::time::{Duration, SystemTime};
+
+    fn create_test_account(name: &str) -> Account {
+        Account {
+            name: name.to_string(),
+            secret: "JBSWY3DPEHPK3PXP".to_string(),
+            issuer: "Test".to_string(),
+            algorithm: "SHA1".to_string(),
+            digits: 6,
+            period: 30,
+            epoch: 0,
+        }
+    }
+
+    fn create_test_storage() -> Storage {
+        Storage {
+            accounts: vec![
+                create_test_account("GitHub"),
+                create_test_account("Google"),
+                create_test_account("Amazon"),
+                create_test_account("Microsoft"),
+            ],
+        }
+    }
+
+    #[test]
+    fn test_screen_buffer_creation() {
+        let buffer = ScreenBuffer::new(80, 24);
+        assert_eq!(buffer.width, 80);
+        assert_eq!(buffer.height, 24);
+        assert_eq!(buffer.lines.len(), 24);
+        
+        for line in &buffer.lines {
+            assert!(line.content.is_empty());
+            assert!(!line.is_highlighted);
+            assert!(line.copied_split_pos.is_none());
+        }
+    }
+
+    #[test]
+    fn test_screen_buffer_write_operations() {
+        let mut buffer = ScreenBuffer::new(80, 24);
+        
+        buffer.write_line(0, "Header".to_string());
+        buffer.write_highlighted_line(1, "Selected".to_string());
+        buffer.write_highlighted_line_with_copied(2, "Copied Item".to_string(), 6);
+        
+        assert_eq!(buffer.lines[0].content, "Header");
+        assert!(!buffer.lines[0].is_highlighted);
+        assert!(buffer.lines[0].copied_split_pos.is_none());
+        
+        assert_eq!(buffer.lines[1].content, "Selected");
+        assert!(buffer.lines[1].is_highlighted);
+        assert!(buffer.lines[1].copied_split_pos.is_none());
+        
+        assert_eq!(buffer.lines[2].content, "Copied Item");
+        assert!(buffer.lines[2].is_highlighted);
+        assert_eq!(buffer.lines[2].copied_split_pos, Some(6));
+    }
+
+    #[test]
+    fn test_screen_buffer_bounds_checking() {
+        let mut buffer = ScreenBuffer::new(80, 5);
+        
+        // Write within bounds
+        buffer.write_line(4, "Valid".to_string());
+        assert_eq!(buffer.lines[4].content, "Valid");
+        
+        // Write out of bounds - should not panic or affect buffer
+        buffer.write_line(10, "Out of bounds".to_string());
+        assert_eq!(buffer.lines[4].content, "Valid"); // Last line unchanged
+    }
+
+    #[test]
+    fn test_screen_buffer_clear() {
+        let mut buffer = ScreenBuffer::new(80, 24);
+        
+        buffer.write_highlighted_line_with_copied(0, "Test content".to_string(), 4);
+        buffer.clear();
+        
+        for line in &buffer.lines {
+            assert!(line.content.is_empty());
+            assert!(!line.is_highlighted);
+            assert!(line.copied_split_pos.is_none());
+        }
+    }
+
+    #[test]
+    fn test_copied_state_tracking() {
+        let mut copied_state = CopiedState::new();
+        
+        // Initially no accounts are copied
+        assert!(!copied_state.is_recently_copied("GitHub"));
+        
+        // Mark account as copied
+        copied_state.mark_copied("GitHub");
+        assert!(copied_state.is_recently_copied("GitHub"));
+        assert!(!copied_state.is_recently_copied("Google"));
+        
+        // Multiple accounts
+        copied_state.mark_copied("Google");
+        assert!(copied_state.is_recently_copied("GitHub"));
+        assert!(copied_state.is_recently_copied("Google"));
+    }
+
+    #[test]
+    fn test_copied_state_cleanup() {
+        let mut copied_state = CopiedState::new();
+        
+        // Manually insert old entry
+        let old_time = SystemTime::now() - Duration::from_secs(3);
+        copied_state.accounts.insert("OldAccount".to_string(), old_time);
+        
+        // Add recent entry
+        copied_state.mark_copied("NewAccount");
+        
+        // Before cleanup
+        assert_eq!(copied_state.accounts.len(), 2);
+        
+        // After cleanup
+        copied_state.cleanup_old_entries();
+        assert_eq!(copied_state.accounts.len(), 1);
+        assert!(copied_state.accounts.contains_key("NewAccount"));
+        assert!(!copied_state.accounts.contains_key("OldAccount"));
+    }
+
+    #[test]
+    fn test_get_filtered_accounts_list_mode() {
+        let storage = create_test_storage();
+        let mode = DashboardMode::List;
+        let matcher = SkimMatcherV2::default();
+        
+        let filtered = get_filtered_accounts(&storage, &mode, &matcher);
+        
+        assert_eq!(filtered.len(), 4);
+        assert_eq!(filtered[0].name, "GitHub");
+        assert_eq!(filtered[1].name, "Google");
+        assert_eq!(filtered[2].name, "Amazon");
+        assert_eq!(filtered[3].name, "Microsoft");
+    }
+
+    #[test]
+    fn test_get_filtered_accounts_search_mode() {
+        let storage = create_test_storage();
+        let mode = DashboardMode::Search("Git".to_string());
+        let matcher = SkimMatcherV2::default();
+        
+        let filtered = get_filtered_accounts(&storage, &mode, &matcher);
+        
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].name, "GitHub");
+    }
+
+    #[test]
+    fn test_get_filtered_accounts_search_mode_no_matches() {
+        let storage = create_test_storage();
+        let mode = DashboardMode::Search("NonExistent".to_string());
+        let matcher = SkimMatcherV2::default();
+        
+        let filtered = get_filtered_accounts(&storage, &mode, &matcher);
+        
+        assert_eq!(filtered.len(), 0);
+    }
+
+    #[test]
+    fn test_get_filtered_accounts_search_mode_multiple_matches() {
+        let storage = create_test_storage();
+        let mode = DashboardMode::Search("o".to_string()); // Matches Google, Amazon, Microsoft
+        let matcher = SkimMatcherV2::default();
+        
+        let filtered = get_filtered_accounts(&storage, &mode, &matcher);
+        
+        assert_eq!(filtered.len(), 3);
+        // Results should be sorted by fuzzy match score
+        let names: Vec<&String> = filtered.iter().map(|a| &a.name).collect();
+        assert!(names.contains(&&"Google".to_string()));
+        assert!(names.contains(&&"Amazon".to_string()));
+        assert!(names.contains(&&"Microsoft".to_string()));
+    }
+
+    #[test]
+    fn test_get_filtered_accounts_add_modes() {
+        let storage = create_test_storage();
+        let matcher = SkimMatcherV2::default();
+        
+        // Test Add mode
+        let mode = DashboardMode::Add;
+        let filtered = get_filtered_accounts(&storage, &mode, &matcher);
+        assert_eq!(filtered.len(), 4);
+        
+        // Test AddMethod mode
+        let mode = DashboardMode::AddMethod;
+        let filtered = get_filtered_accounts(&storage, &mode, &matcher);
+        assert_eq!(filtered.len(), 4);
+    }
+
+    #[test]
+    fn test_handle_search_mode_char() {
+        let mut query = String::new();
+        let mut selected = 5;
+        
+        let result = handle_search_mode_char('a', &mut query, &mut selected);
+        
+        assert!(result.is_ok());
+        assert_eq!(query, "a");
+        assert_eq!(selected, 0); // Should reset selection
+        
+        // Add another character
+        let result = handle_search_mode_char('b', &mut query, &mut selected);
+        assert!(result.is_ok());
+        assert_eq!(query, "ab");
+        assert_eq!(selected, 0);
+    }
+
+    #[test]
+    fn test_handle_add_mode_char() {
+        let mut name_buffer = String::new();
+        
+        let result = handle_add_mode_char('G', &mut name_buffer);
+        
+        assert!(result.is_ok());
+        assert_eq!(name_buffer, "G");
+        
+        // Add more characters
+        let result = handle_add_mode_char('i', &mut name_buffer);
+        assert!(result.is_ok());
+        assert_eq!(name_buffer, "Gi");
+    }
+
+    #[test]
+    fn test_extract_account_from_otpauth_valid() {
+        let uri = "otpauth://totp/GitHub?secret=ABC123&issuer=GitHub";
+        let result = extract_account_from_otpauth(uri);
+        assert_eq!(result, Some("GitHub".to_string()));
+    }
+
+    #[test]
+    fn test_extract_account_from_otpauth_with_encoded_name() {
+        let uri = "otpauth://totp/My%20Account?secret=ABC123";
+        let result = extract_account_from_otpauth(uri);
+        assert_eq!(result, Some("My Account".to_string()));
+    }
+
+    #[test]
+    fn test_extract_account_from_otpauth_no_query() {
+        let uri = "otpauth://totp/SimpleAccount";
+        let result = extract_account_from_otpauth(uri);
+        assert_eq!(result, Some("SimpleAccount".to_string()));
+    }
+
+    #[test]
+    fn test_extract_account_from_otpauth_invalid() {
+        let uri = "invalid://uri";
+        let result = extract_account_from_otpauth(uri);
+        assert_eq!(result, None);
+        
+        let uri = "otpauth://hotp/Account"; // Wrong type
+        let result = extract_account_from_otpauth(uri);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_extract_secret_from_otpauth_valid() {
+        let uri = "otpauth://totp/GitHub?secret=ABC123&issuer=GitHub";
+        let result = extract_secret_from_otpauth(uri);
+        assert_eq!(result, Some("ABC123".to_string()));
+    }
+
+    #[test]
+    fn test_extract_secret_from_otpauth_no_secret() {
+        let uri = "otpauth://totp/GitHub?issuer=GitHub";
+        let result = extract_secret_from_otpauth(uri);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_extract_secret_from_otpauth_invalid_uri() {
+        let uri = "invalid://uri";
+        let result = extract_secret_from_otpauth(uri);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_dashboard_mode_display() {
+        // Test that modes can be created and compared
+        let list_mode = DashboardMode::List;
+        let search_mode = DashboardMode::Search("test".to_string());
+        let add_mode = DashboardMode::Add;
+        let add_method_mode = DashboardMode::AddMethod;
+        
+        assert!(matches!(list_mode, DashboardMode::List));
+        assert!(matches!(search_mode, DashboardMode::Search(_)));
+        assert!(matches!(add_mode, DashboardMode::Add));
+        assert!(matches!(add_method_mode, DashboardMode::AddMethod));
+        
+        if let DashboardMode::Search(query) = search_mode {
+            assert_eq!(query, "test");
+        }
+    }
+}
