@@ -64,12 +64,18 @@ impl ScreenBuffer {
     fn write_highlighted_line(&mut self, row: u16, content: String) {
         self.write_line_with_style(row, content, true, None);
     }
-    
+
     fn write_highlighted_line_with_copied(&mut self, row: u16, content: String, split_pos: usize) {
         self.write_line_with_style(row, content, true, Some(split_pos));
     }
 
-    fn write_line_with_style(&mut self, row: u16, content: String, highlighted: bool, copied_split: Option<usize>) {
+    fn write_line_with_style(
+        &mut self,
+        row: u16,
+        content: String,
+        highlighted: bool,
+        copied_split: Option<usize>,
+    ) {
         if row < self.height {
             self.lines[row as usize].content = content;
             self.lines[row as usize].is_highlighted = highlighted;
@@ -89,7 +95,11 @@ impl ScreenBuffer {
         Ok(())
     }
 
-    fn render_line_content(&self, stdout: &mut io::Stdout, line: &BufferLine) -> Result<(), AppError> {
+    fn render_line_content(
+        &self,
+        stdout: &mut io::Stdout,
+        line: &BufferLine,
+    ) -> Result<(), AppError> {
         if line.is_highlighted {
             if let Some(split_pos) = line.copied_split_pos {
                 self.render_highlighted_with_copied(stdout, &line.content, split_pos)
@@ -101,7 +111,12 @@ impl ScreenBuffer {
         }
     }
 
-    fn render_highlighted_with_copied(&self, stdout: &mut io::Stdout, content: &str, split_pos: usize) -> Result<(), AppError> {
+    fn render_highlighted_with_copied(
+        &self,
+        stdout: &mut io::Stdout,
+        content: &str,
+        split_pos: usize,
+    ) -> Result<(), AppError> {
         let (highlighted_part, copied_part) = content.split_at(split_pos);
         queue!(
             stdout,
@@ -117,7 +132,11 @@ impl ScreenBuffer {
         Ok(())
     }
 
-    fn render_highlighted_content(&self, stdout: &mut io::Stdout, content: &str) -> Result<(), AppError> {
+    fn render_highlighted_content(
+        &self,
+        stdout: &mut io::Stdout,
+        content: &str,
+    ) -> Result<(), AppError> {
         queue!(
             stdout,
             SetAttribute(Attribute::Bold),
@@ -131,7 +150,11 @@ impl ScreenBuffer {
         Ok(())
     }
 
-    fn render_normal_content(&self, stdout: &mut io::Stdout, content: &str) -> Result<(), AppError> {
+    fn render_normal_content(
+        &self,
+        stdout: &mut io::Stdout,
+        content: &str,
+    ) -> Result<(), AppError> {
         queue!(stdout, Print(content))?;
         Ok(())
     }
@@ -147,7 +170,7 @@ impl ScreenBuffer {
                 } else {
                     "Choose add method: [M]anual (ESC to cancel)".to_string()
                 }
-            },
+            }
         };
         self.write_line(0, header);
     }
@@ -158,20 +181,20 @@ impl ScreenBuffer {
             .expect("Time went backwards");
         let secs_until_next_30 = 30 - (now.as_secs() % 30);
         let subsec_progress = now.as_millis() % 1000;
-        
+
         let bar_width = 30;
         let total_progress = (30 - secs_until_next_30) as f64 + (subsec_progress as f64 / 1000.0);
         let filled_exact = total_progress;
         let filled_full = filled_exact.floor() as usize;
         let partial = filled_exact - filled_full as f64;
-        
+
         let blocks = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"];
         let partial_block = if filled_full < bar_width {
             blocks[(partial * 8.0) as usize]
         } else {
             ""
         };
-        
+
         let remaining = if filled_full < bar_width {
             bar_width - filled_full - if partial_block.is_empty() { 0 } else { 1 }
         } else {
@@ -207,11 +230,12 @@ impl ScreenBuffer {
         } else {
             ""
         };
-        
+
         // Always reserve space for " copied" to keep codes aligned
         let code_str = format!("{:0width$}", code, width = account.digits as usize);
-        let max_name_len = (max_width as usize).saturating_sub(code_str.len() + copied_text.len() + 3); // 3 for padding
-        
+        let max_name_len =
+            (max_width as usize).saturating_sub(code_str.len() + copied_text.len() + 3); // 3 for padding
+
         let display_name = if account.name.len() > max_name_len {
             format!("{}...", &account.name[..max_name_len.saturating_sub(3)])
         } else {
@@ -224,15 +248,12 @@ impl ScreenBuffer {
                 .saturating_sub(display_name.len())
                 .saturating_sub(code_str.len())
                 .saturating_sub(copied_text.len()) // Always reserve space for " copied"
-                .saturating_sub(1) // right padding
+                .saturating_sub(1), // right padding
         );
 
         let line = format!(
             " {} {}{}{} ",
-            display_name,
-            spacing,
-            code_str,
-            copied_indicator
+            display_name, spacing, code_str, copied_indicator
         );
 
         if selected {
@@ -271,7 +292,8 @@ impl CopiedState {
     }
 
     fn mark_copied(&mut self, account_name: &str) {
-        self.accounts.insert(account_name.to_string(), SystemTime::now());
+        self.accounts
+            .insert(account_name.to_string(), SystemTime::now());
     }
 
     fn is_recently_copied(&self, account_name: &str) -> bool {
@@ -299,9 +321,7 @@ fn get_filtered_accounts<'a>(
     matcher: &SkimMatcherV2,
 ) -> Vec<&'a crate::totp::Account> {
     match mode {
-        DashboardMode::List => {
-            storage.accounts.iter().collect()
-        }
+        DashboardMode::List => storage.accounts.iter().collect(),
         DashboardMode::Search(query) => {
             let mut matches: Vec<_> = storage
                 .accounts
@@ -315,13 +335,11 @@ fn get_filtered_accounts<'a>(
             matches.sort_by_key(|(score, _)| -score);
             matches.into_iter().map(|(_, acc)| acc).collect()
         }
-        DashboardMode::Add | DashboardMode::AddMethod => {
-            storage.accounts.iter().collect()
-        }
+        DashboardMode::Add | DashboardMode::AddMethod => storage.accounts.iter().collect(),
     }
 }
 
-pub fn show() -> Result<(), AppError> {
+pub fn show(use_memory: bool) -> Result<(), AppError> {
     let mut stdout = io::stdout();
     enable_raw_mode()?;
     queue!(stdout, Clear(ClearType::All), Hide)?;
@@ -332,7 +350,7 @@ pub fn show() -> Result<(), AppError> {
     let mut name_buffer = String::with_capacity(64);
     let mut copied_state = CopiedState::new();
     // Get storage at the start of each loop iteration
-    let mut storage = get_storage()?;
+    let mut storage = get_storage(use_memory)?;
 
     // Initialize screen buffer
     let (term_width, term_height) = size()?;
@@ -348,7 +366,7 @@ pub fn show() -> Result<(), AppError> {
 
         // Clear buffer for new frame
         buffer.clear();
-        
+
         // Clean up old copied entries
         copied_state.cleanup_old_entries();
 
@@ -377,6 +395,7 @@ pub fn show() -> Result<(), AppError> {
             &mut stdout,
             &mut name_buffer,
             &mut copied_state,
+            use_memory,
         )? {
             InputResult::Continue => {
                 // Continue the loop
@@ -388,11 +407,11 @@ pub fn show() -> Result<(), AppError> {
             }
             InputResult::RefreshStorage => {
                 // Storage will be refreshed at the start of the next loop
-                storage = get_storage()?;
+                storage = get_storage(use_memory)?;
             }
             InputResult::RefreshStorageAndResetMode => {
                 // Storage will be refreshed and mode reset to List
-                storage = get_storage()?;
+                storage = get_storage(use_memory)?;
                 mode = DashboardMode::List;
             }
         }
@@ -419,6 +438,7 @@ fn handle_input(
     stdout: &mut io::Stdout,
     name_buffer: &mut String,
     copied_state: &mut CopiedState,
+    use_memory: bool,
 ) -> Result<InputResult, AppError> {
     if poll(std::time::Duration::from_millis(250))? {
         match read()? {
@@ -443,7 +463,7 @@ fn handle_input(
                 code: KeyCode::Char(c),
                 ..
             }) => {
-                return handle_char_input(c, mode, selected, accounts, stdout, name_buffer);
+                return handle_char_input(c, mode, selected, accounts, stdout, name_buffer, use_memory);
             }
             Event::Key(KeyEvent {
                 code: KeyCode::Backspace,
@@ -477,25 +497,29 @@ fn handle_input(
             Event::Key(KeyEvent {
                 code: KeyCode::Enter,
                 ..
-            }) => {
-                match mode {
-                    DashboardMode::Add => {
-                        if !name_buffer.trim().is_empty() {
-                            return handle_add_mode(stdout, &name_buffer);
-                        }
+            }) => match mode {
+                DashboardMode::Add => {
+                    if !name_buffer.trim().is_empty() {
+                        return handle_add_mode(stdout, &name_buffer, use_memory);
                     }
-                    _ => {
-                        if let Some(account) = accounts.get(*selected) {
-                            match mode {
-                                DashboardMode::List | DashboardMode::Search(_) => {
-                                    copy_code_to_clipboard(account, *selected, term_width, stdout, copied_state)?;
-                                }
-                                _ => {}
+                }
+                _ => {
+                    if let Some(account) = accounts.get(*selected) {
+                        match mode {
+                            DashboardMode::List | DashboardMode::Search(_) => {
+                                copy_code_to_clipboard(
+                                    account,
+                                    *selected,
+                                    term_width,
+                                    stdout,
+                                    copied_state,
+                                )?;
                             }
+                            _ => {}
                         }
                     }
                 }
-            }
+            },
             _ => {}
         }
     }
@@ -509,12 +533,13 @@ fn handle_char_input(
     accounts: &[&crate::totp::Account],
     stdout: &mut io::Stdout,
     name_buffer: &mut String,
+    use_memory: bool,
 ) -> Result<InputResult, AppError> {
     match mode {
-        DashboardMode::List => handle_list_mode_char(c, mode, selected, accounts, stdout),
+        DashboardMode::List => handle_list_mode_char(c, mode, selected, accounts, stdout, use_memory),
         DashboardMode::Search(query) => handle_search_mode_char(c, query, selected),
         DashboardMode::Add => handle_add_mode_char(c, name_buffer),
-        DashboardMode::AddMethod => handle_add_method_mode_char(c, mode, stdout, name_buffer),
+        DashboardMode::AddMethod => handle_add_method_mode_char(c, mode, stdout, name_buffer, use_memory),
     }
 }
 
@@ -524,6 +549,7 @@ fn handle_list_mode_char(
     selected: &mut usize,
     accounts: &[&crate::totp::Account],
     stdout: &mut io::Stdout,
+    use_memory: bool,
 ) -> Result<InputResult, AppError> {
     match c.to_ascii_lowercase() {
         'f' => {
@@ -537,7 +563,7 @@ fn handle_list_mode_char(
         }
         'd' => {
             if let Some(account) = accounts.get(*selected) {
-                handle_delete_confirmation(account, stdout)
+                handle_delete_confirmation(account, stdout, use_memory)
             } else {
                 Ok(InputResult::Continue)
             }
@@ -573,9 +599,10 @@ fn handle_add_method_mode_char(
     mode: &mut DashboardMode,
     stdout: &mut io::Stdout,
     name_buffer: &mut String,
+    use_memory: bool,
 ) -> Result<InputResult, AppError> {
     match c.to_ascii_lowercase() {
-        's' if cfg!(target_os = "macos") => handle_screenshot_add(stdout),
+        's' if cfg!(target_os = "macos") => handle_screenshot_add(stdout, use_memory),
         'm' => {
             *mode = DashboardMode::Add;
             name_buffer.clear();
@@ -599,11 +626,11 @@ fn restore_dashboard_state(stdout: &mut io::Stdout) -> Result<(), AppError> {
     Ok(())
 }
 
-fn handle_add_mode(stdout: &mut io::Stdout, name: &str) -> Result<InputResult, AppError> {
+fn handle_add_mode(stdout: &mut io::Stdout, name: &str, use_memory: bool) -> Result<InputResult, AppError> {
     setup_terminal_for_input(stdout)?;
 
     if let Ok(secret) = prompt_password("Enter the Base32 secret: ") {
-        if let Ok(()) = save_account(name, &secret) {
+        if let Ok(()) = save_account(name, &secret, use_memory) {
             queue!(stdout, Print(format!("Added account: {}", name)))?;
         }
     }
@@ -616,6 +643,7 @@ fn handle_add_mode(stdout: &mut io::Stdout, name: &str) -> Result<InputResult, A
 fn handle_delete_confirmation(
     account: &crate::totp::Account,
     stdout: &mut io::Stdout,
+    use_memory: bool,
 ) -> Result<InputResult, AppError> {
     // Clear only the first line and show cursor
     queue!(
@@ -635,7 +663,7 @@ fn handle_delete_confirmation(
     io::stdin().read_line(&mut confirm)?;
 
     let result = if confirm.trim().eq_ignore_ascii_case("y") {
-        if let Ok(()) = delete_account(&account.name) {
+        if let Ok(()) = delete_account(&account.name, use_memory) {
             // Clear confirmation message
             queue!(stdout, MoveTo(0, 0), Clear(ClearType::CurrentLine))?;
             stdout.flush()?;
@@ -707,9 +735,9 @@ fn handle_export_qr(
 }
 
 #[cfg(target_os = "macos")]
-fn handle_screenshot_add(stdout: &mut io::Stdout) -> Result<InputResult, AppError> {
-    use std::process::Command;
+fn handle_screenshot_add(stdout: &mut io::Stdout, use_memory: bool) -> Result<InputResult, AppError> {
     use std::fs;
+    use std::process::Command;
 
     setup_terminal_for_input(stdout)?;
 
@@ -721,8 +749,8 @@ fn handle_screenshot_add(stdout: &mut io::Stdout) -> Result<InputResult, AppErro
 
     // Call screencapture with interactive selection
     let output = Command::new("screencapture")
-        .arg("-i")  // Interactive selection
-        .arg("-r")  // No drop shadow
+        .arg("-i") // Interactive selection
+        .arg("-r") // No drop shadow
         .arg(temp_path)
         .output()
         .map_err(|e| AppError::new(format!("Failed to call screencapture: {}", e)))?;
@@ -732,7 +760,7 @@ fn handle_screenshot_add(stdout: &mut io::Stdout) -> Result<InputResult, AppErro
         println!("Press Enter to return to dashboard...");
         let mut input = String::new();
         io::stdin().read_line(&mut input)?;
-        
+
         restore_dashboard_state(stdout)?;
         return Ok(InputResult::Continue);
     }
@@ -742,23 +770,26 @@ fn handle_screenshot_add(stdout: &mut io::Stdout) -> Result<InputResult, AppErro
         Ok(qr_data) => {
             // Clean up temp file
             let _ = fs::remove_file(temp_path);
-            
+
             // Try to parse as otpauth URI
             if let Some(extracted_name) = extract_account_from_otpauth(&qr_data) {
                 if let Some(secret) = extract_secret_from_otpauth(&qr_data) {
                     // Prompt for account name with default
-                    println!("Enter account name (press Enter for default) [{}]: ", extracted_name);
+                    println!(
+                        "Enter account name (press Enter for default) [{}]: ",
+                        extracted_name
+                    );
                     let mut input = String::new();
                     io::stdin().read_line(&mut input)?;
-                    
+
                     let account_name = input.trim();
                     let final_name = if account_name.is_empty() {
                         extracted_name
                     } else {
                         account_name.to_string()
                     };
-                    
-                    match save_account(&final_name, &secret) {
+
+                    match save_account(&final_name, &secret, use_memory) {
                         Ok(()) => {
                             println!("Successfully added account: {}", final_name);
                         }
@@ -793,7 +824,7 @@ fn handle_screenshot_add(stdout: &mut io::Stdout) -> Result<InputResult, AppErro
 fn decode_qr_from_image(image_path: &str) -> Result<String, AppError> {
     use image::ImageReader;
     use rqrr::PreparedImage;
-    
+
     // Load the image
     let img = ImageReader::open(image_path)
         .map_err(|e| AppError::new(format!("Failed to open image: {}", e)))?
@@ -805,7 +836,7 @@ fn decode_qr_from_image(image_path: &str) -> Result<String, AppError> {
 
     // Prepare image for QR detection
     let mut prepared = PreparedImage::prepare(luma_img);
-    
+
     // Try to find and decode QR codes
     let grids = prepared.detect_grids();
     if grids.is_empty() {
@@ -813,7 +844,8 @@ fn decode_qr_from_image(image_path: &str) -> Result<String, AppError> {
     }
 
     // Decode the first QR code found
-    let (_, content) = grids[0].decode()
+    let (_, content) = grids[0]
+        .decode()
         .map_err(|e| AppError::new(format!("Failed to decode QR code: {:?}", e)))?;
 
     Ok(content)
@@ -823,11 +855,11 @@ fn extract_account_from_otpauth(uri: &str) -> Option<String> {
     if !uri.starts_with("otpauth://totp/") {
         return None;
     }
-    
+
     // Extract account name from URI path
     let path_start = uri.find("otpauth://totp/")?;
     let path = &uri[path_start + 15..]; // Skip "otpauth://totp/"
-    
+
     if let Some(query_start) = path.find('?') {
         let account_part = &path[..query_start];
         // URL decode and extract just the account name
@@ -839,7 +871,7 @@ fn extract_account_from_otpauth(uri: &str) -> Option<String> {
 
 fn extract_secret_from_otpauth(uri: &str) -> Option<String> {
     use url::Url;
-    
+
     let parsed = Url::parse(uri).ok()?;
     let pairs: std::collections::HashMap<_, _> = parsed.query_pairs().collect();
     pairs.get("secret").map(|s| s.to_string())
@@ -848,8 +880,8 @@ fn extract_secret_from_otpauth(uri: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::totp::Account;
     use crate::Storage;
+    use crate::totp::Account;
     use std::time::{Duration, SystemTime};
 
     fn create_test_account(name: &str) -> Account {
@@ -881,7 +913,7 @@ mod tests {
         assert_eq!(buffer.width, 80);
         assert_eq!(buffer.height, 24);
         assert_eq!(buffer.lines.len(), 24);
-        
+
         for line in &buffer.lines {
             assert!(line.content.is_empty());
             assert!(!line.is_highlighted);
@@ -892,19 +924,19 @@ mod tests {
     #[test]
     fn test_screen_buffer_write_operations() {
         let mut buffer = ScreenBuffer::new(80, 24);
-        
+
         buffer.write_line(0, "Header".to_string());
         buffer.write_highlighted_line(1, "Selected".to_string());
         buffer.write_highlighted_line_with_copied(2, "Copied Item".to_string(), 6);
-        
+
         assert_eq!(buffer.lines[0].content, "Header");
         assert!(!buffer.lines[0].is_highlighted);
         assert!(buffer.lines[0].copied_split_pos.is_none());
-        
+
         assert_eq!(buffer.lines[1].content, "Selected");
         assert!(buffer.lines[1].is_highlighted);
         assert!(buffer.lines[1].copied_split_pos.is_none());
-        
+
         assert_eq!(buffer.lines[2].content, "Copied Item");
         assert!(buffer.lines[2].is_highlighted);
         assert_eq!(buffer.lines[2].copied_split_pos, Some(6));
@@ -913,11 +945,11 @@ mod tests {
     #[test]
     fn test_screen_buffer_bounds_checking() {
         let mut buffer = ScreenBuffer::new(80, 5);
-        
+
         // Write within bounds
         buffer.write_line(4, "Valid".to_string());
         assert_eq!(buffer.lines[4].content, "Valid");
-        
+
         // Write out of bounds - should not panic or affect buffer
         buffer.write_line(10, "Out of bounds".to_string());
         assert_eq!(buffer.lines[4].content, "Valid"); // Last line unchanged
@@ -926,10 +958,10 @@ mod tests {
     #[test]
     fn test_screen_buffer_clear() {
         let mut buffer = ScreenBuffer::new(80, 24);
-        
+
         buffer.write_highlighted_line_with_copied(0, "Test content".to_string(), 4);
         buffer.clear();
-        
+
         for line in &buffer.lines {
             assert!(line.content.is_empty());
             assert!(!line.is_highlighted);
@@ -940,15 +972,15 @@ mod tests {
     #[test]
     fn test_copied_state_tracking() {
         let mut copied_state = CopiedState::new();
-        
+
         // Initially no accounts are copied
         assert!(!copied_state.is_recently_copied("GitHub"));
-        
+
         // Mark account as copied
         copied_state.mark_copied("GitHub");
         assert!(copied_state.is_recently_copied("GitHub"));
         assert!(!copied_state.is_recently_copied("Google"));
-        
+
         // Multiple accounts
         copied_state.mark_copied("Google");
         assert!(copied_state.is_recently_copied("GitHub"));
@@ -958,17 +990,19 @@ mod tests {
     #[test]
     fn test_copied_state_cleanup() {
         let mut copied_state = CopiedState::new();
-        
+
         // Manually insert old entry
         let old_time = SystemTime::now() - Duration::from_secs(3);
-        copied_state.accounts.insert("OldAccount".to_string(), old_time);
-        
+        copied_state
+            .accounts
+            .insert("OldAccount".to_string(), old_time);
+
         // Add recent entry
         copied_state.mark_copied("NewAccount");
-        
+
         // Before cleanup
         assert_eq!(copied_state.accounts.len(), 2);
-        
+
         // After cleanup
         copied_state.cleanup_old_entries();
         assert_eq!(copied_state.accounts.len(), 1);
@@ -981,9 +1015,9 @@ mod tests {
         let storage = create_test_storage();
         let mode = DashboardMode::List;
         let matcher = SkimMatcherV2::default();
-        
+
         let filtered = get_filtered_accounts(&storage, &mode, &matcher);
-        
+
         assert_eq!(filtered.len(), 4);
         assert_eq!(filtered[0].name, "GitHub");
         assert_eq!(filtered[1].name, "Google");
@@ -996,9 +1030,9 @@ mod tests {
         let storage = create_test_storage();
         let mode = DashboardMode::Search("Git".to_string());
         let matcher = SkimMatcherV2::default();
-        
+
         let filtered = get_filtered_accounts(&storage, &mode, &matcher);
-        
+
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].name, "GitHub");
     }
@@ -1008,9 +1042,9 @@ mod tests {
         let storage = create_test_storage();
         let mode = DashboardMode::Search("NonExistent".to_string());
         let matcher = SkimMatcherV2::default();
-        
+
         let filtered = get_filtered_accounts(&storage, &mode, &matcher);
-        
+
         assert_eq!(filtered.len(), 0);
     }
 
@@ -1019,9 +1053,9 @@ mod tests {
         let storage = create_test_storage();
         let mode = DashboardMode::Search("o".to_string()); // Matches Google, Amazon, Microsoft
         let matcher = SkimMatcherV2::default();
-        
+
         let filtered = get_filtered_accounts(&storage, &mode, &matcher);
-        
+
         assert_eq!(filtered.len(), 3);
         // Results should be sorted by fuzzy match score
         let names: Vec<&String> = filtered.iter().map(|a| &a.name).collect();
@@ -1034,12 +1068,12 @@ mod tests {
     fn test_get_filtered_accounts_add_modes() {
         let storage = create_test_storage();
         let matcher = SkimMatcherV2::default();
-        
+
         // Test Add mode
         let mode = DashboardMode::Add;
         let filtered = get_filtered_accounts(&storage, &mode, &matcher);
         assert_eq!(filtered.len(), 4);
-        
+
         // Test AddMethod mode
         let mode = DashboardMode::AddMethod;
         let filtered = get_filtered_accounts(&storage, &mode, &matcher);
@@ -1050,13 +1084,13 @@ mod tests {
     fn test_handle_search_mode_char() {
         let mut query = String::new();
         let mut selected = 5;
-        
+
         let result = handle_search_mode_char('a', &mut query, &mut selected);
-        
+
         assert!(result.is_ok());
         assert_eq!(query, "a");
         assert_eq!(selected, 0); // Should reset selection
-        
+
         // Add another character
         let result = handle_search_mode_char('b', &mut query, &mut selected);
         assert!(result.is_ok());
@@ -1067,12 +1101,12 @@ mod tests {
     #[test]
     fn test_handle_add_mode_char() {
         let mut name_buffer = String::new();
-        
+
         let result = handle_add_mode_char('G', &mut name_buffer);
-        
+
         assert!(result.is_ok());
         assert_eq!(name_buffer, "G");
-        
+
         // Add more characters
         let result = handle_add_mode_char('i', &mut name_buffer);
         assert!(result.is_ok());
@@ -1105,7 +1139,7 @@ mod tests {
         let uri = "invalid://uri";
         let result = extract_account_from_otpauth(uri);
         assert_eq!(result, None);
-        
+
         let uri = "otpauth://hotp/Account"; // Wrong type
         let result = extract_account_from_otpauth(uri);
         assert_eq!(result, None);
@@ -1139,12 +1173,12 @@ mod tests {
         let search_mode = DashboardMode::Search("test".to_string());
         let add_mode = DashboardMode::Add;
         let add_method_mode = DashboardMode::AddMethod;
-        
+
         assert!(matches!(list_mode, DashboardMode::List));
         assert!(matches!(search_mode, DashboardMode::Search(_)));
         assert!(matches!(add_mode, DashboardMode::Add));
         assert!(matches!(add_method_mode, DashboardMode::AddMethod));
-        
+
         if let DashboardMode::Search(query) = search_mode {
             assert_eq!(query, "test");
         }
