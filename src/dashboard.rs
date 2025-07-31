@@ -445,45 +445,9 @@ fn handle_input(
             Event::Key(KeyEvent {
                 code: KeyCode::Char(c),
                 ..
-            }) => match mode {
-                DashboardMode::List => match c.to_ascii_lowercase() {
-                    'f' => {
-                        *mode = DashboardMode::Search(String::new());
-                        *selected = 0;
-                    }
-                    'a' => {
-                        *mode = DashboardMode::AddMethod;
-                    }
-                    'd' => {
-                        if let Some(account) = accounts.get(*selected) {
-                            return handle_delete_confirmation(account, stdout);
-                        }
-                    }
-                    'e' => {
-                        if let Some(account) = accounts.get(*selected) {
-                            return handle_export_qr(account, stdout);
-                        }
-                    }
-                    _ => {}
-                },
-                DashboardMode::Search(query) => {
-                    query.push(c);
-                    *selected = 0;
-                }
-                DashboardMode::Add => {
-                    name_buffer.push(c);
-                }
-                DashboardMode::AddMethod => match c.to_ascii_lowercase() {
-                    's' if cfg!(target_os = "macos") => {
-                        return handle_screenshot_add(stdout);
-                    }
-                    'm' => {
-                        *mode = DashboardMode::Add;
-                        name_buffer.clear();
-                    }
-                    _ => {}
-                }
-            },
+            }) => {
+                return handle_char_input(c, mode, selected, accounts, stdout, name_buffer);
+            }
             Event::Key(KeyEvent {
                 code: KeyCode::Backspace,
                 ..
@@ -539,6 +503,89 @@ fn handle_input(
         }
     }
     Ok(InputResult::Continue)
+}
+
+fn handle_char_input(
+    c: char,
+    mode: &mut DashboardMode,
+    selected: &mut usize,
+    accounts: &[&crate::totp::Account],
+    stdout: &mut io::Stdout,
+    name_buffer: &mut String,
+) -> Result<InputResult, AppError> {
+    match mode {
+        DashboardMode::List => handle_list_mode_char(c, mode, selected, accounts, stdout),
+        DashboardMode::Search(query) => handle_search_mode_char(c, query, selected),
+        DashboardMode::Add => handle_add_mode_char(c, name_buffer),
+        DashboardMode::AddMethod => handle_add_method_mode_char(c, mode, stdout, name_buffer),
+    }
+}
+
+fn handle_list_mode_char(
+    c: char,
+    mode: &mut DashboardMode,
+    selected: &mut usize,
+    accounts: &[&crate::totp::Account],
+    stdout: &mut io::Stdout,
+) -> Result<InputResult, AppError> {
+    match c.to_ascii_lowercase() {
+        'f' => {
+            *mode = DashboardMode::Search(String::new());
+            *selected = 0;
+            Ok(InputResult::Continue)
+        }
+        'a' => {
+            *mode = DashboardMode::AddMethod;
+            Ok(InputResult::Continue)
+        }
+        'd' => {
+            if let Some(account) = accounts.get(*selected) {
+                handle_delete_confirmation(account, stdout)
+            } else {
+                Ok(InputResult::Continue)
+            }
+        }
+        'e' => {
+            if let Some(account) = accounts.get(*selected) {
+                handle_export_qr(account, stdout)
+            } else {
+                Ok(InputResult::Continue)
+            }
+        }
+        _ => Ok(InputResult::Continue),
+    }
+}
+
+fn handle_search_mode_char(
+    c: char,
+    query: &mut String,
+    selected: &mut usize,
+) -> Result<InputResult, AppError> {
+    query.push(c);
+    *selected = 0;
+    Ok(InputResult::Continue)
+}
+
+fn handle_add_mode_char(c: char, name_buffer: &mut String) -> Result<InputResult, AppError> {
+    name_buffer.push(c);
+    Ok(InputResult::Continue)
+}
+
+fn handle_add_method_mode_char(
+    c: char,
+    mode: &mut DashboardMode,
+    stdout: &mut io::Stdout,
+    name_buffer: &mut String,
+) -> Result<InputResult, AppError> {
+    match c.to_ascii_lowercase() {
+        's' if cfg!(target_os = "macos") => handle_screenshot_add(stdout),
+        'm' => {
+            *mode = DashboardMode::Add;
+            name_buffer.clear();
+            Ok(InputResult::Continue)
+        }
+        _ => Ok(InputResult::Continue),
+    }
 }
 
 fn handle_add_mode(stdout: &mut io::Stdout, name: &str) -> Result<InputResult, AppError> {
