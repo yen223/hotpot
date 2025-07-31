@@ -1,7 +1,8 @@
 use std::{
     cmp::min,
+    collections::HashMap,
     io::{self, Write},
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use arboard::Clipboard;
@@ -29,6 +30,7 @@ struct ScreenBuffer {
 struct BufferLine {
     content: String,
     is_highlighted: bool,
+    copied_split_pos: Option<usize>, // Position where "copied" text starts for special rendering
 }
 
 impl ScreenBuffer {
@@ -37,7 +39,8 @@ impl ScreenBuffer {
             lines: vec![
                 BufferLine {
                     content: String::new(),
-                    is_highlighted: false
+                    is_highlighted: false,
+                    copied_split_pos: None,
                 };
                 height as usize
             ],
@@ -50,6 +53,7 @@ impl ScreenBuffer {
         for line in &mut self.lines {
             line.content.clear();
             line.is_highlighted = false;
+            line.copied_split_pos = None;
         }
     }
 
@@ -57,6 +61,7 @@ impl ScreenBuffer {
         if row < self.height {
             self.lines[row as usize].content = content;
             self.lines[row as usize].is_highlighted = false;
+            self.lines[row as usize].copied_split_pos = None;
         }
     }
 
@@ -64,6 +69,15 @@ impl ScreenBuffer {
         if row < self.height {
             self.lines[row as usize].content = content;
             self.lines[row as usize].is_highlighted = true;
+            self.lines[row as usize].copied_split_pos = None;
+        }
+    }
+    
+    fn write_highlighted_line_with_copied(&mut self, row: u16, content: String, split_pos: usize) {
+        if row < self.height {
+            self.lines[row as usize].content = content;
+            self.lines[row as usize].is_highlighted = true;
+            self.lines[row as usize].copied_split_pos = Some(split_pos);
         }
     }
 
@@ -74,16 +88,33 @@ impl ScreenBuffer {
                 queue!(stdout, MoveTo(0, row as u16))?;
 
                 if line.is_highlighted {
-                    queue!(
-                        stdout,
-                        SetAttribute(Attribute::Bold),
-                        SetForegroundColor(Color::Black),
-                        SetBackgroundColor(Color::White),
-                        Print(&line.content),
-                        SetAttribute(Attribute::Reset),
-                        SetForegroundColor(Color::Reset),
-                        SetBackgroundColor(Color::Reset)
-                    )?;
+                    if let Some(split_pos) = line.copied_split_pos {
+                        // Render highlighted part normally, then "copied" without highlighting
+                        let (highlighted_part, copied_part) = line.content.split_at(split_pos);
+                        queue!(
+                            stdout,
+                            SetAttribute(Attribute::Bold),
+                            SetForegroundColor(Color::Black),
+                            SetBackgroundColor(Color::White),
+                            Print(highlighted_part),
+                            SetAttribute(Attribute::Reset),
+                            SetForegroundColor(Color::Reset),
+                            SetBackgroundColor(Color::Reset),
+                            Print(copied_part)
+                        )?;
+                    } else {
+                        // Regular highlighted line
+                        queue!(
+                            stdout,
+                            SetAttribute(Attribute::Bold),
+                            SetForegroundColor(Color::Black),
+                            SetBackgroundColor(Color::White),
+                            Print(&line.content),
+                            SetAttribute(Attribute::Reset),
+                            SetForegroundColor(Color::Reset),
+                            SetBackgroundColor(Color::Reset)
+                        )?;
+                    }
                 } else {
                     queue!(stdout, Print(&line.content))?;
                 }
@@ -132,6 +163,7 @@ impl ScreenBuffer {
         account: &crate::totp::Account,
         row: u16,
         selected: bool,
+        copied_state: &CopiedState,
     ) -> Result<(), AppError> {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -139,7 +171,17 @@ impl ScreenBuffer {
         let code = generate_totp(account, now)?;
 
         let max_width = min(self.width, 64);
-        let max_name_len = (max_width as usize).saturating_sub(8); // Leave room for code
+        let copied_text = "  copied";
+        let copied_indicator = if copied_state.is_recently_copied(&account.name) {
+            copied_text
+        } else {
+            ""
+        };
+        
+        // Always reserve space for " copied" to keep codes aligned
+        let code_str = format!("{:0width$}", code, width = account.digits as usize);
+        let max_name_len = (max_width as usize).saturating_sub(code_str.len() + copied_text.len() + 3); // 3 for padding
+        
         let display_name = if account.name.len() > max_name_len {
             format!("{}...", &account.name[..max_name_len.saturating_sub(3)])
         } else {
@@ -148,21 +190,29 @@ impl ScreenBuffer {
 
         let spacing = " ".repeat(
             (max_width as usize)
-                .saturating_sub(6)
+                .saturating_sub(1) // left padding
                 .saturating_sub(display_name.len())
-                + 2,
+                .saturating_sub(code_str.len())
+                .saturating_sub(copied_text.len()) // Always reserve space for " copied"
+                .saturating_sub(1) // right padding
         );
 
         let line = format!(
-            " {} {}{:0width$} ",
+            " {} {}{}{} ",
             display_name,
             spacing,
-            code,
-            width = account.digits as usize
+            code_str,
+            copied_indicator
         );
 
         if selected {
-            self.write_highlighted_line(row, line);
+            if copied_indicator.is_empty() {
+                self.write_highlighted_line(row, line);
+            } else {
+                // Split at the position where " copied" begins
+                let split_pos = line.len() - copied_indicator.len();
+                self.write_highlighted_line_with_copied(row, line, split_pos);
+            }
         } else {
             self.write_line(row, line);
         }
@@ -178,6 +228,41 @@ enum DashboardMode {
     AddMethod,
 }
 
+// Track recently copied accounts
+struct CopiedState {
+    accounts: HashMap<String, SystemTime>,
+}
+
+impl CopiedState {
+    fn new() -> Self {
+        Self {
+            accounts: HashMap::new(),
+        }
+    }
+
+    fn mark_copied(&mut self, account_name: &str) {
+        self.accounts.insert(account_name.to_string(), SystemTime::now());
+    }
+
+    fn is_recently_copied(&self, account_name: &str) -> bool {
+        if let Some(&copied_time) = self.accounts.get(account_name) {
+            if let Ok(elapsed) = SystemTime::now().duration_since(copied_time) {
+                return elapsed < Duration::from_secs(2); // Show "copied" for 2 seconds
+            }
+        }
+        false
+    }
+
+    fn cleanup_old_entries(&mut self) {
+        let now = SystemTime::now();
+        self.accounts.retain(|_, &mut copied_time| {
+            now.duration_since(copied_time)
+                .map(|elapsed| elapsed < Duration::from_secs(2))
+                .unwrap_or(false)
+        });
+    }
+}
+
 pub fn show() -> Result<(), AppError> {
     let mut stdout = io::stdout();
     enable_raw_mode()?;
@@ -187,6 +272,7 @@ pub fn show() -> Result<(), AppError> {
     let mut selected = 0;
     let matcher = SkimMatcherV2::default();
     let mut name_buffer = String::with_capacity(64);
+    let mut copied_state = CopiedState::new();
     // Get storage at the start of each loop iteration
     let mut storage = get_storage()?;
 
@@ -206,6 +292,9 @@ pub fn show() -> Result<(), AppError> {
 
         // Clear buffer for new frame
         buffer.clear();
+        
+        // Clean up old copied entries
+        copied_state.cleanup_old_entries();
 
         // Process accounts based on current mode
         let filtered_accounts = match &mode {
@@ -240,7 +329,7 @@ pub fn show() -> Result<(), AppError> {
             let display_count = min(filtered_accounts.len(), max_display);
             for (idx, account) in filtered_accounts.iter().take(display_count).enumerate() {
                 let is_selected = idx == selected;
-                buffer.render_account_line(account, 4 + idx as u16, is_selected)?;
+                buffer.render_account_line(account, 4 + idx as u16, is_selected, &copied_state)?;
             }
         }
 
@@ -256,11 +345,14 @@ pub fn show() -> Result<(), AppError> {
             term_width,
             &mut stdout,
             &mut name_buffer,
+            &mut copied_state,
         )? {
             InputResult::Continue => {
                 // Continue the loop
             }
             InputResult::Exit => {
+                queue!(stdout, Clear(ClearType::All), MoveTo(0, 0))?;
+                stdout.flush()?;
                 break;
             }
             InputResult::RefreshStorage => {
@@ -295,6 +387,7 @@ fn handle_input(
     term_width: u16,
     stdout: &mut io::Stdout,
     name_buffer: &mut String,
+    copied_state: &mut CopiedState,
 ) -> Result<InputResult, AppError> {
     if poll(std::time::Duration::from_millis(250))? {
         match read()? {
@@ -400,7 +493,7 @@ fn handle_input(
                         if let Some(account) = accounts.get(*selected) {
                             match mode {
                                 DashboardMode::List | DashboardMode::Search(_) => {
-                                    copy_code_to_clipboard(account, *selected, term_width, stdout)?;
+                                    copy_code_to_clipboard(account, *selected, term_width, stdout, copied_state)?;
                                 }
                                 _ => {}
                             }
@@ -480,6 +573,7 @@ fn copy_code_to_clipboard(
     _selected_idx: usize,
     _term_width: u16,
     _stdout: &mut io::Stdout,
+    copied_state: &mut CopiedState,
 ) -> Result<(), AppError> {
     let duration = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -487,7 +581,7 @@ fn copy_code_to_clipboard(
     if let Ok(code) = generate_totp(account, duration) {
         if let Ok(mut clipboard) = Clipboard::new() {
             let _ = clipboard.set_text(format!("{}", code));
-            // Visual feedback is now handled by the main rendering loop
+            copied_state.mark_copied(&account.name);
         }
     }
     Ok(())
