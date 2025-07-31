@@ -430,7 +430,9 @@ fn handle_delete_confirmation(
         MoveTo(0, 0),
         Clear(ClearType::CurrentLine),
         Show,
-        Print(format!("Delete account '{}'? [y/N] ", account.name))
+        SetForegroundColor(Color::Red),
+        Print(format!("Delete account '{}'? [y/N] ", account.name)),
+        SetForegroundColor(Color::Reset)
     )?;
     stdout.flush()?;
     disable_raw_mode()?;
