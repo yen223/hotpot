@@ -3,6 +3,8 @@ use keyring::Entry;
 use rpassword::prompt_password;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
+use std::fs;
+use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::io::{self, Write};
 
@@ -23,6 +25,9 @@ struct Cli {
     #[arg(short = 'l', long = "load-image", value_name = "IMAGE_PATH")]
     load_image: Option<String>,
     
+    /// Use file-backed storage instead of secure keyring storage
+    #[arg(short = 'f', long = "file", value_name = "FILE_PATH")]
+    file: Option<String>,
     
     #[command(subcommand)]
     command: Option<Commands>,
@@ -59,25 +64,49 @@ struct Storage {
     accounts: Vec<Account>,
 }
 
-fn get_storage() -> Result<Storage, AppError> {
-    let entry = Entry::new(SERVICE_NAME, STORAGE_KEY).map_err(AppError::from)?;
+fn get_storage(file_path: Option<&str>) -> Result<Storage, AppError> {
+    if let Some(path) = file_path {
+        // File-backed storage
+        if Path::new(path).exists() {
+            let data = fs::read_to_string(path)
+                .map_err(|e| AppError::new(format!("Failed to read file {}: {}", path, e)))?;
+            Ok(serde_json::from_str(&data)?)
+        } else {
+            Ok(Storage::default())
+        }
+    } else {
+        // Keyring storage
+        let entry = Entry::new(SERVICE_NAME, STORAGE_KEY).map_err(AppError::from)?;
 
-    match entry.get_password() {
-        Ok(data) => Ok(serde_json::from_str(&data)?),
-        Err(keyring::Error::NoEntry) => Ok(Storage::default()),
-        Err(e) => Err(AppError::from(e)),
+        match entry.get_password() {
+            Ok(data) => Ok(serde_json::from_str(&data)?),
+            Err(keyring::Error::NoEntry) => Ok(Storage::default()),
+            Err(e) => Err(AppError::from(e)),
+        }
     }
 }
 
-fn save_storage(storage: &Storage) -> Result<(), AppError> {
-    let data = serde_json::to_string(storage)?;
-    Entry::new(SERVICE_NAME, STORAGE_KEY)?
-        .set_password(&data)
-        .map_err(AppError::from)
+fn save_storage(storage: &Storage, file_path: Option<&str>) -> Result<(), AppError> {
+    let data = serde_json::to_string_pretty(storage)?;
+    
+    if let Some(path) = file_path {
+        // File-backed storage
+        if let Some(parent) = Path::new(path).parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| AppError::new(format!("Failed to create directory: {}", e)))?;
+        }
+        fs::write(path, data)
+            .map_err(|e| AppError::new(format!("Failed to write file {}: {}", path, e)))
+    } else {
+        // Keyring storage
+        Entry::new(SERVICE_NAME, STORAGE_KEY)?
+            .set_password(&data)
+            .map_err(AppError::from)
+    }
 }
 
-fn save_account(name: &str, secret: &str) -> Result<(), AppError> {
-    let mut storage = get_storage()?;
+fn save_account(name: &str, secret: &str, file_path: Option<&str>) -> Result<(), AppError> {
+    let mut storage = get_storage(file_path)?;
     if storage.accounts.iter().any(|a| a.name == name) {
         return Err(AppError::new(format!("Account '{}' already exists", name)));
     }
@@ -85,11 +114,11 @@ fn save_account(name: &str, secret: &str) -> Result<(), AppError> {
         .accounts
         .push(Account::new(name.to_string(), secret.to_string()));
     storage.accounts.sort_by(|a, b| a.name.cmp(&b.name));
-    save_storage(&storage)
+    save_storage(&storage, file_path)
 }
 
-fn get_account(name: &str) -> Result<Account, AppError> {
-    let storage = get_storage()?;
+fn get_account(name: &str, file_path: Option<&str>) -> Result<Account, AppError> {
+    let storage = get_storage(file_path)?;
     storage
         .accounts
         .iter()
@@ -98,14 +127,14 @@ fn get_account(name: &str) -> Result<Account, AppError> {
         .ok_or_else(|| AppError::new(format!("Account '{}' not found", name)))
 }
 
-fn delete_account(name: &str) -> Result<(), AppError> {
-    let mut storage = get_storage()?;
+fn delete_account(name: &str, file_path: Option<&str>) -> Result<(), AppError> {
+    let mut storage = get_storage(file_path)?;
     let initial_len = storage.accounts.len();
     storage.accounts.retain(|a| a.name != name);
     if storage.accounts.len() == initial_len {
         return Err(AppError::new(format!("Account '{}' not found", name)));
     }
-    save_storage(&storage)
+    save_storage(&storage, file_path)
 }
 
 fn handle_error(err: AppError) {
@@ -216,8 +245,46 @@ fn prompt_account_name(default: &str) -> Result<String, AppError> {
     }
 }
 
+fn validate_file_path(path: &str) -> Result<(), AppError> {
+    let path_obj = Path::new(path);
+    
+    // Check if parent directory exists or can be created
+    if let Some(parent) = path_obj.parent() {
+        if !parent.exists() {
+            fs::create_dir_all(parent)
+                .map_err(|e| AppError::new(format!("Cannot create directory '{}': {}", parent.display(), e)))?;
+        }
+    }
+    
+    // Check if file is readable/writable if it exists
+    if path_obj.exists() {
+        if path_obj.is_dir() {
+            return Err(AppError::new(format!("'{}' is a directory, not a file", path)));
+        }
+        
+        // Try to read the file to check permissions - but only if it exists
+        let metadata = fs::metadata(path_obj)
+            .map_err(|e| AppError::new(format!("Cannot access file '{}': {}", path, e)))?;
+        
+        if !metadata.is_file() {
+            return Err(AppError::new(format!("'{}' is not a regular file", path)));
+        }
+    }
+    
+    Ok(())
+}
+
 fn main() {
     let cli = Cli::parse();
+    let file_path = cli.file.as_deref();
+    
+    // Validate file path if provided
+    if let Some(path) = file_path {
+        if let Err(err) = validate_file_path(path) {
+            handle_error(err);
+            std::process::exit(1);
+        }
+    }
 
     let result = match (&cli.load_image, &cli.command) {
         (Some(image_path), None) => {
@@ -229,7 +296,7 @@ fn main() {
                         Ok((default_name, secret, issuer)) => {
                             match prompt_account_name(&default_name) {
                                 Ok(account_name) => {
-                                    save_account(&account_name, &secret)
+                                    save_account(&account_name, &secret, file_path)
                                         .map(|_| println!("Added account: {} (from {})", account_name, issuer))
                                 }
                                 Err(e) => Err(e),
@@ -244,12 +311,12 @@ fn main() {
         (Some(_), Some(_)) => {
             Err(AppError::new("Cannot use --load-image with subcommands"))
         }
-        (None, None) => dashboard::show(),
+        (None, None) => dashboard::show(file_path),
         (None, Some(Commands::Add { name })) => match prompt_password("Enter the Base32 secret: ") {
-            Ok(secret) => save_account(name, &secret).map(|_| println!("Added account: {}", name)),
+            Ok(secret) => save_account(name, &secret, file_path).map(|_| println!("Added account: {}", name)),
             Err(err) => Err(AppError::new(err.to_string())),
         },
-        (None, Some(Commands::Code { name })) => get_account(name).and_then(|account| {
+        (None, Some(Commands::Code { name })) => get_account(name, file_path).and_then(|account| {
             let duration = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("System time is before Unix epoch");
@@ -263,10 +330,10 @@ fn main() {
             })
         }),
         (None, Some(Commands::Delete { name })) => {
-            delete_account(name).map(|_| println!("Deleted account: {}", name))
+            delete_account(name, file_path).map(|_| println!("Deleted account: {}", name))
         }
         (None, Some(Commands::ExportQr { name })) => {
-            get_account(name).and_then(|account| export_qr_code(name, &account.secret))
+            get_account(name, file_path).and_then(|account| export_qr_code(name, &account.secret))
         }
     };
 

@@ -9,6 +9,7 @@ Built with Rust for security, performance, and reliability.
 ## Features
 
 - 🔒 **Secure storage** using system keyring (Keychain/libsecret/Credential Manager)
+- 📁 **File-backed storage** option for portable configurations (optional `--file` flag)
 - 🕒 **TOTP (RFC 6238)** code generation with customizable algorithms (SHA1/SHA256/SHA512)
 - 💻 **Interactive dashboard** with real-time codes, progress bars, and fuzzy search
 - 📋 **One-click copy** to clipboard with visual feedback
@@ -90,6 +91,32 @@ hotpot export-qr --name <account-name>
 
 This will display a QR code in the terminal that can be scanned by authenticator apps.
 
+### File-Backed Storage Mode
+
+For portable configurations or when keyring access is unavailable, you can use the `--file` flag to store accounts in a JSON file instead of the secure keyring.
+
+```bash
+# Interactive dashboard with file storage
+hotpot --file ~/.config/hotpot/accounts.json
+
+# Add account to file
+hotpot --file ./my-accounts.json add work-account
+
+# Generate code from file-stored account
+hotpot --file ./my-accounts.json code work-account
+
+# Delete account from file
+hotpot --file ./my-accounts.json delete work-account
+```
+
+**Use cases for file-backed storage:**
+- 📁 **Portable configurations**: Store accounts in a file that can be synced or backed up
+- 🖥️ **Server environments**: Use when keyring services are unavailable
+- 🔄 **Development/Testing**: Isolate test accounts from secure storage
+- 📋 **Team sharing**: Share account configurations (ensure file security)
+
+**Security Note**: File-backed storage stores secrets in plaintext JSON. Ensure proper file permissions (600) and consider encrypting the file for sensitive environments.
+
 
 ## Security
 
@@ -97,6 +124,8 @@ This will display a QR code in the terminal that can be scanned by authenticator
 - macOS: Keychain
 - Linux: Secret Service API/libsecret
 - Windows: Windows Credential Manager
+
+**File-Backed Storage:** When using the `--file` flag, accounts are stored in a JSON file at the specified path. The file is created with appropriate permissions (600) and directories are created automatically if needed. This mode is useful for portable configurations or when keyring access is unavailable.
 
 
 ## Development
@@ -135,6 +164,9 @@ cargo run
 
 # Run with specific arguments
 cargo run -- add github
+
+# Test with file storage
+cargo run -- --file test-accounts.json add test-account
 
 
 # Check code quality

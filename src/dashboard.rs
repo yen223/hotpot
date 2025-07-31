@@ -339,7 +339,7 @@ fn get_filtered_accounts<'a>(
     }
 }
 
-pub fn show() -> Result<(), AppError> {
+pub fn show(file_path: Option<&str>) -> Result<(), AppError> {
     let mut stdout = io::stdout();
     enable_raw_mode()?;
     queue!(stdout, Clear(ClearType::All), Hide)?;
@@ -350,7 +350,7 @@ pub fn show() -> Result<(), AppError> {
     let mut name_buffer = String::with_capacity(64);
     let mut copied_state = CopiedState::new();
     // Get storage at the start of each loop iteration
-    let mut storage = get_storage()?;
+    let mut storage = get_storage(file_path)?;
 
     // Initialize screen buffer
     let (term_width, term_height) = size()?;
@@ -395,6 +395,7 @@ pub fn show() -> Result<(), AppError> {
             &mut stdout,
             &mut name_buffer,
             &mut copied_state,
+            file_path,
         )? {
             InputResult::Continue => {
                 // Continue the loop
@@ -406,11 +407,11 @@ pub fn show() -> Result<(), AppError> {
             }
             InputResult::RefreshStorage => {
                 // Storage will be refreshed at the start of the next loop
-                storage = get_storage()?;
+                storage = get_storage(file_path)?;
             }
             InputResult::RefreshStorageAndResetMode => {
                 // Storage will be refreshed and mode reset to List
-                storage = get_storage()?;
+                storage = get_storage(file_path)?;
                 mode = DashboardMode::List;
             }
         }
@@ -437,6 +438,7 @@ fn handle_input(
     stdout: &mut io::Stdout,
     name_buffer: &mut String,
     copied_state: &mut CopiedState,
+    file_path: Option<&str>,
 ) -> Result<InputResult, AppError> {
     if poll(std::time::Duration::from_millis(250))? {
         match read()? {
@@ -461,7 +463,7 @@ fn handle_input(
                 code: KeyCode::Char(c),
                 ..
             }) => {
-                return handle_char_input(c, mode, selected, accounts, stdout, name_buffer);
+                return handle_char_input(c, mode, selected, accounts, stdout, name_buffer, file_path);
             }
             Event::Key(KeyEvent {
                 code: KeyCode::Backspace,
@@ -498,7 +500,7 @@ fn handle_input(
             }) => match mode {
                 DashboardMode::Add => {
                     if !name_buffer.trim().is_empty() {
-                        return handle_add_mode(stdout, &name_buffer);
+                        return handle_add_mode(stdout, &name_buffer, file_path);
                     }
                 }
                 _ => {
@@ -531,12 +533,13 @@ fn handle_char_input(
     accounts: &[&crate::totp::Account],
     stdout: &mut io::Stdout,
     name_buffer: &mut String,
+    file_path: Option<&str>,
 ) -> Result<InputResult, AppError> {
     match mode {
-        DashboardMode::List => handle_list_mode_char(c, mode, selected, accounts, stdout),
+        DashboardMode::List => handle_list_mode_char(c, mode, selected, accounts, stdout, file_path),
         DashboardMode::Search(query) => handle_search_mode_char(c, query, selected),
         DashboardMode::Add => handle_add_mode_char(c, name_buffer),
-        DashboardMode::AddMethod => handle_add_method_mode_char(c, mode, stdout, name_buffer),
+        DashboardMode::AddMethod => handle_add_method_mode_char(c, mode, stdout, name_buffer, file_path),
     }
 }
 
@@ -546,6 +549,7 @@ fn handle_list_mode_char(
     selected: &mut usize,
     accounts: &[&crate::totp::Account],
     stdout: &mut io::Stdout,
+    file_path: Option<&str>,
 ) -> Result<InputResult, AppError> {
     match c.to_ascii_lowercase() {
         'f' => {
@@ -559,7 +563,7 @@ fn handle_list_mode_char(
         }
         'd' => {
             if let Some(account) = accounts.get(*selected) {
-                handle_delete_confirmation(account, stdout)
+                handle_delete_confirmation(account, stdout, file_path)
             } else {
                 Ok(InputResult::Continue)
             }
@@ -595,9 +599,10 @@ fn handle_add_method_mode_char(
     mode: &mut DashboardMode,
     stdout: &mut io::Stdout,
     name_buffer: &mut String,
+    file_path: Option<&str>,
 ) -> Result<InputResult, AppError> {
     match c.to_ascii_lowercase() {
-        's' if cfg!(target_os = "macos") => handle_screenshot_add(stdout),
+        's' if cfg!(target_os = "macos") => handle_screenshot_add(stdout, file_path),
         'm' => {
             *mode = DashboardMode::Add;
             name_buffer.clear();
@@ -621,11 +626,11 @@ fn restore_dashboard_state(stdout: &mut io::Stdout) -> Result<(), AppError> {
     Ok(())
 }
 
-fn handle_add_mode(stdout: &mut io::Stdout, name: &str) -> Result<InputResult, AppError> {
+fn handle_add_mode(stdout: &mut io::Stdout, name: &str, file_path: Option<&str>) -> Result<InputResult, AppError> {
     setup_terminal_for_input(stdout)?;
 
     if let Ok(secret) = prompt_password("Enter the Base32 secret: ") {
-        if let Ok(()) = save_account(name, &secret) {
+        if let Ok(()) = save_account(name, &secret, file_path) {
             queue!(stdout, Print(format!("Added account: {}", name)))?;
         }
     }
@@ -638,6 +643,7 @@ fn handle_add_mode(stdout: &mut io::Stdout, name: &str) -> Result<InputResult, A
 fn handle_delete_confirmation(
     account: &crate::totp::Account,
     stdout: &mut io::Stdout,
+    file_path: Option<&str>,
 ) -> Result<InputResult, AppError> {
     // Clear only the first line and show cursor
     queue!(
@@ -657,7 +663,7 @@ fn handle_delete_confirmation(
     io::stdin().read_line(&mut confirm)?;
 
     let result = if confirm.trim().eq_ignore_ascii_case("y") {
-        if let Ok(()) = delete_account(&account.name) {
+        if let Ok(()) = delete_account(&account.name, file_path) {
             // Clear confirmation message
             queue!(stdout, MoveTo(0, 0), Clear(ClearType::CurrentLine))?;
             stdout.flush()?;
@@ -729,7 +735,7 @@ fn handle_export_qr(
 }
 
 #[cfg(target_os = "macos")]
-fn handle_screenshot_add(stdout: &mut io::Stdout) -> Result<InputResult, AppError> {
+fn handle_screenshot_add(stdout: &mut io::Stdout, file_path: Option<&str>) -> Result<InputResult, AppError> {
     use std::fs;
     use std::process::Command;
 
@@ -783,7 +789,7 @@ fn handle_screenshot_add(stdout: &mut io::Stdout) -> Result<InputResult, AppErro
                         account_name.to_string()
                     };
 
-                    match save_account(&final_name, &secret) {
+                    match save_account(&final_name, &secret, file_path) {
                         Ok(()) => {
                             println!("Successfully added account: {}", final_name);
                         }

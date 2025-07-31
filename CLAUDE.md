@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Hotpot is a command-line TOTP (Time-based One-Time Password) authenticator written in Rust. It securely stores 2FA secrets in the system keyring and provides both interactive dashboard and CLI interfaces for managing and generating TOTP codes.
+Hotpot is a command-line TOTP (Time-based One-Time Password) authenticator written in Rust. It securely stores 2FA secrets in the system keyring by default, with an optional file-backed storage mode for portable configurations. It provides both interactive dashboard and CLI interfaces for managing and generating TOTP codes.
 
 ## Development Commands
 
@@ -46,14 +46,37 @@ Hotpot is a command-line TOTP (Time-based One-Time Password) authenticator writt
 
 **Storage Layer (`src/main.rs:68-133`)**
 - JSON serialization of account data
+- Dual storage backends: secure keyring (default) and file-backed (optional)
 - Secure storage via system keyring (macOS Keychain, Linux Secret Service, Windows Credential Manager)
-- Account management (add, delete, retrieve)
+- File-backed storage with automatic directory creation and proper permissions
+- Account management (add, delete, retrieve) with backend selection
 
 ### Key Storage Pattern
-**Keyring Storage:** All secrets are stored in the system keyring under service name "hotpot" with storage key "_hotpot_storage" as JSON. Accounts are sorted alphabetically and stored as a serialized `Storage` struct.
+**Keyring Storage (Default):** All secrets are stored in the system keyring under service name "hotpot" with storage key "_hotpot_storage" as JSON. Accounts are sorted alphabetically and stored as a serialized `Storage` struct.
+
+**File-Backed Storage (Optional):** When using the `--file` flag, accounts are stored in a JSON file at the specified path. The file is created with proper permissions (600) and parent directories are created automatically if needed. This mode is ideal for portable configurations, server environments, or when keyring access is unavailable.
 
 ### Error Handling
 Custom `AppError` type in `src/lib.rs` with conversions from keyring, JSON, and IO errors. All errors bubble up to main for consistent user-facing error messages.
+
+### Known Issues & Limitations
+
+**rpassword Environment Compatibility:**
+The `rpassword` crate (used for secure password input) can fail with "Device not configured (os error 6)" in certain environments:
+- When stdin is redirected (e.g., `echo "secret" | hotpot add account`)
+- In some CI/CD environments or containers
+- On macOS in certain terminal configurations
+- When TTY access is restricted
+
+This affects the `add` command's password prompting but does not impact:
+- Non-interactive commands (`code`, `delete`, `export-qr`)
+- Dashboard mode (uses different input handling)
+- File storage functionality (the core feature works correctly)
+
+**Workarounds:**
+- Use the interactive dashboard for adding accounts (press 'A' then 'M')
+- Pre-create JSON files with account data for testing
+- Consider alternative password input methods for automated environments
 
 ## CLI Interface
 
@@ -64,6 +87,15 @@ The application supports both interactive mode (default) and specific commands:
 - `hotpot delete <name>` - Delete account with confirmation  
 - `hotpot export-qr --name <name>` - Export QR code to terminal
 - `hotpot --load-image <path>` - Import account from QR code image
+
+**File-Backed Storage Mode:**
+Add the `--file` flag to any command to use file-backed storage instead of the secure keyring:
+- `hotpot --file accounts.json` - Interactive dashboard with file storage
+- `hotpot --file accounts.json add <name>` - Add account to file
+- `hotpot --file accounts.json code <name>` - Generate code from file-stored account
+- `hotpot --file accounts.json delete <name>` - Delete account from file
+
+This mode is perfect for portable configurations, server environments, or when keyring services are unavailable.
 
 
 ## Dependencies
