@@ -1,5 +1,7 @@
 # Hotpot 🍲
 
+![Recording of hotpot in action](hotpot-demo.svg)
+
 Authy / Google Authenticator for the command line.
 
 Hotpot is a simple and secure command-line tool for managing TOTP-based two-factor authentication codes. Hotpot securely stores your 2FA secrets in your system's keyring and generates time-based one-time passwords when you need them.
