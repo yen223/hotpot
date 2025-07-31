@@ -145,14 +145,32 @@ impl ScreenBuffer {
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards");
         let secs_until_next_30 = 30 - (now.as_secs() % 30);
+        let subsec_progress = now.as_millis() % 1000;
+        
         let bar_width = 30;
-        let filled = (30 - secs_until_next_30) as usize;
-        let empty = bar_width - filled;
+        let total_progress = (30 - secs_until_next_30) as f64 + (subsec_progress as f64 / 1000.0);
+        let filled_exact = total_progress;
+        let filled_full = filled_exact.floor() as usize;
+        let partial = filled_exact - filled_full as f64;
+        
+        let blocks = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"];
+        let partial_block = if filled_full < bar_width {
+            blocks[(partial * 8.0) as usize]
+        } else {
+            ""
+        };
+        
+        let remaining = if filled_full < bar_width {
+            bar_width - filled_full - if partial_block.is_empty() { 0 } else { 1 }
+        } else {
+            0
+        };
 
         let progress_line = format!(
-            "|{}{}| {:2}s",
-            "█".repeat(filled),
-            " ".repeat(empty),
+            "|{}{}{}| {:2}s",
+            "█".repeat(filled_full),
+            partial_block,
+            " ".repeat(remaining),
             secs_until_next_30
         );
         self.write_line(2, progress_line);
