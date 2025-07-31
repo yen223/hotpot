@@ -297,6 +297,34 @@ impl CopiedState {
     }
 }
 
+fn get_filtered_accounts<'a>(
+    storage: &'a crate::Storage,
+    mode: &DashboardMode,
+    matcher: &SkimMatcherV2,
+) -> Vec<&'a crate::totp::Account> {
+    match mode {
+        DashboardMode::List => {
+            storage.accounts.iter().collect()
+        }
+        DashboardMode::Search(query) => {
+            let mut matches: Vec<_> = storage
+                .accounts
+                .iter()
+                .filter_map(|account| {
+                    matcher
+                        .fuzzy_match(&account.name, query)
+                        .map(|score| (score, account))
+                })
+                .collect();
+            matches.sort_by_key(|(score, _)| -score);
+            matches.into_iter().map(|(_, acc)| acc).collect()
+        }
+        DashboardMode::Add | DashboardMode::AddMethod => {
+            storage.accounts.iter().collect()
+        }
+    }
+}
+
 pub fn show() -> Result<(), AppError> {
     let mut stdout = io::stdout();
     enable_raw_mode()?;
@@ -330,29 +358,7 @@ pub fn show() -> Result<(), AppError> {
         // Clean up old copied entries
         copied_state.cleanup_old_entries();
 
-        // Process accounts based on current mode
-        let filtered_accounts = match &mode {
-            DashboardMode::List => {
-                // In list mode, show all accounts in order
-                storage.accounts.iter().collect::<Vec<_>>()
-            }
-            DashboardMode::Search(query) => {
-                // In search mode, filter accounts by query
-                let mut matches: Vec<_> = storage
-                    .accounts
-                    .iter()
-                    .filter_map(|account| {
-                        matcher
-                            .fuzzy_match(&account.name, query)
-                            .map(|score| (score, account))
-                    })
-                    .collect();
-                matches.sort_by_key(|(score, _)| -score);
-                matches.into_iter().map(|(_, acc)| acc).collect()
-            }
-            DashboardMode::Add => storage.accounts.iter().collect::<Vec<_>>(), // Show accounts in add mode
-            DashboardMode::AddMethod => storage.accounts.iter().collect::<Vec<_>>(), // Show accounts in add method mode
-        };
+        let filtered_accounts = get_filtered_accounts(&storage, &mode, &matcher);
 
         // Render to buffer
         buffer.render_header(&mode, &name_buffer);
