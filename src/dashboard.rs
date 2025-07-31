@@ -58,26 +58,22 @@ impl ScreenBuffer {
     }
 
     fn write_line(&mut self, row: u16, content: String) {
-        if row < self.height {
-            self.lines[row as usize].content = content;
-            self.lines[row as usize].is_highlighted = false;
-            self.lines[row as usize].copied_split_pos = None;
-        }
+        self.write_line_with_style(row, content, false, None);
     }
 
     fn write_highlighted_line(&mut self, row: u16, content: String) {
-        if row < self.height {
-            self.lines[row as usize].content = content;
-            self.lines[row as usize].is_highlighted = true;
-            self.lines[row as usize].copied_split_pos = None;
-        }
+        self.write_line_with_style(row, content, true, None);
     }
     
     fn write_highlighted_line_with_copied(&mut self, row: u16, content: String, split_pos: usize) {
+        self.write_line_with_style(row, content, true, Some(split_pos));
+    }
+
+    fn write_line_with_style(&mut self, row: u16, content: String, highlighted: bool, copied_split: Option<usize>) {
         if row < self.height {
             self.lines[row as usize].content = content;
-            self.lines[row as usize].is_highlighted = true;
-            self.lines[row as usize].copied_split_pos = Some(split_pos);
+            self.lines[row as usize].is_highlighted = highlighted;
+            self.lines[row as usize].copied_split_pos = copied_split;
         }
     }
 
