@@ -1,6 +1,6 @@
 # Hotpot 🍲
 
-![Recording of hotpot in action](hotpot-demo.svg)
+![Recording of hotpot in action](hotpot-demo.gif)
 
 Authy / Google Authenticator for the command line.
 
