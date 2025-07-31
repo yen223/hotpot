@@ -95,15 +95,16 @@ impl ScreenBuffer {
 
     fn render_header(&mut self, mode: &DashboardMode, name_buffer: &str) {
         let header = match mode {
-            DashboardMode::List => {
-                if cfg!(target_os = "macos") {
-                    "[F]ind [A]dd [S]creenshot [D]elete [E]xport QR [Q]uit".to_string()
-                } else {
-                    "[F]ind [A]dd [D]elete [E]xport QR [Q]uit".to_string()
-                }
-            },
+            DashboardMode::List => "[F]ind [A]dd [D]elete [E]xport QR [Q]uit".to_string(),
             DashboardMode::Search(query) => format!("Search (ESC to exit): {}_", query),
             DashboardMode::Add => format!("Enter account name (ESC to cancel): {}_", name_buffer),
+            DashboardMode::AddMethod => {
+                if cfg!(target_os = "macos") {
+                    "Choose add method: [S]creenshot [M]anual (ESC to cancel)".to_string()
+                } else {
+                    "Choose add method: [M]anual (ESC to cancel)".to_string()
+                }
+            },
         };
         self.write_line(0, header);
     }
@@ -174,6 +175,7 @@ enum DashboardMode {
     List,
     Search(String),
     Add,
+    AddMethod,
 }
 
 pub fn show() -> Result<(), AppError> {
@@ -226,6 +228,7 @@ pub fn show() -> Result<(), AppError> {
                 matches.into_iter().map(|(_, acc)| acc).collect()
             }
             DashboardMode::Add => storage.accounts.iter().collect::<Vec<_>>(), // Show accounts in add mode
+            DashboardMode::AddMethod => storage.accounts.iter().collect::<Vec<_>>(), // Show accounts in add method mode
         };
 
         // Render to buffer
@@ -264,6 +267,11 @@ pub fn show() -> Result<(), AppError> {
                 // Storage will be refreshed at the start of the next loop
                 storage = get_storage()?;
             }
+            InputResult::RefreshStorageAndResetMode => {
+                // Storage will be refreshed and mode reset to List
+                storage = get_storage()?;
+                mode = DashboardMode::List;
+            }
         }
     }
 
@@ -276,6 +284,7 @@ enum InputResult {
     Continue,
     Exit,
     RefreshStorage,
+    RefreshStorageAndResetMode,
 }
 
 fn handle_input(
@@ -316,11 +325,7 @@ fn handle_input(
                         *selected = 0;
                     }
                     'a' => {
-                        *mode = DashboardMode::Add;
-                        name_buffer.clear();
-                    }
-                    's' if cfg!(target_os = "macos") => {
-                        return handle_screenshot_add(stdout);
+                        *mode = DashboardMode::AddMethod;
                     }
                     'd' => {
                         if let Some(account) = accounts.get(*selected) {
@@ -340,6 +345,16 @@ fn handle_input(
                 }
                 DashboardMode::Add => {
                     name_buffer.push(c);
+                }
+                DashboardMode::AddMethod => match c.to_ascii_lowercase() {
+                    's' if cfg!(target_os = "macos") => {
+                        return handle_screenshot_add(stdout);
+                    }
+                    'm' => {
+                        *mode = DashboardMode::Add;
+                        name_buffer.clear();
+                    }
+                    _ => {}
                 }
             },
             Event::Key(KeyEvent {
@@ -378,9 +393,7 @@ fn handle_input(
                 match mode {
                     DashboardMode::Add => {
                         if !name_buffer.trim().is_empty() {
-                            let result = handle_add_mode(stdout, &name_buffer)?;
-                            *mode = DashboardMode::List; // Reset to List mode
-                            return Ok(result);
+                            return handle_add_mode(stdout, &name_buffer);
                         }
                     }
                     _ => {
@@ -417,7 +430,7 @@ fn handle_add_mode(stdout: &mut io::Stdout, name: &str) -> Result<InputResult, A
     enable_raw_mode()?;
     queue!(stdout, Clear(ClearType::All), Hide)?;
 
-    Ok(InputResult::RefreshStorage)
+    Ok(InputResult::RefreshStorageAndResetMode)
 }
 
 fn handle_delete_confirmation(
@@ -609,7 +622,7 @@ fn handle_screenshot_add(stdout: &mut io::Stdout) -> Result<InputResult, AppErro
     queue!(stdout, Clear(ClearType::All), Hide)?;
     stdout.flush()?;
 
-    Ok(InputResult::RefreshStorage)
+    Ok(InputResult::RefreshStorageAndResetMode)
 }
 
 fn decode_qr_from_image(image_path: &str) -> Result<String, AppError> {
