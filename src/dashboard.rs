@@ -95,7 +95,13 @@ impl ScreenBuffer {
 
     fn render_header(&mut self, mode: &DashboardMode, name_buffer: &str) {
         let header = match mode {
-            DashboardMode::List => "[F]ind [A]dd [D]elete [E]xport QR [Q]uit".to_string(),
+            DashboardMode::List => {
+                if cfg!(target_os = "macos") {
+                    "[F]ind [A]dd [S]creenshot [D]elete [E]xport QR [Q]uit".to_string()
+                } else {
+                    "[F]ind [A]dd [D]elete [E]xport QR [Q]uit".to_string()
+                }
+            },
             DashboardMode::Search(query) => format!("Search (ESC to exit): {}_", query),
             DashboardMode::Add => format!("Enter account name (ESC to cancel): {}_", name_buffer),
         };
@@ -313,6 +319,9 @@ fn handle_input(
                         *mode = DashboardMode::Add;
                         name_buffer.clear();
                     }
+                    's' if cfg!(target_os = "macos") => {
+                        return handle_screenshot_add(stdout);
+                    }
                     'd' => {
                         if let Some(account) = accounts.get(*selected) {
                             return handle_delete_confirmation(account, stdout);
@@ -506,4 +515,152 @@ fn handle_export_qr(
     stdout.flush()?;
 
     Ok(InputResult::Continue)
+}
+
+#[cfg(target_os = "macos")]
+fn handle_screenshot_add(stdout: &mut io::Stdout) -> Result<InputResult, AppError> {
+    use std::process::Command;
+    use std::fs;
+
+    // Clear screen and show cursor
+    queue!(stdout, Clear(ClearType::All), MoveTo(0, 0), Show)?;
+    stdout.flush()?;
+    disable_raw_mode()?;
+
+    println!("Screenshot mode - select area to capture QR code");
+    println!("Position your cursor and drag to select the QR code area...");
+
+    // Create temporary file path
+    let temp_path = "/tmp/hotpot_screenshot.png";
+
+    // Call screencapture with interactive selection
+    let output = Command::new("screencapture")
+        .arg("-i")  // Interactive selection
+        .arg("-r")  // No drop shadow
+        .arg(temp_path)
+        .output()
+        .map_err(|e| AppError::new(format!("Failed to call screencapture: {}", e)))?;
+
+    if !output.status.success() {
+        println!("Screenshot cancelled or failed");
+        println!("Press Enter to return to dashboard...");
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+        
+        // Restore dashboard state
+        enable_raw_mode()?;
+        queue!(stdout, Clear(ClearType::All), Hide)?;
+        stdout.flush()?;
+        return Ok(InputResult::Continue);
+    }
+
+    // Read and decode QR code from screenshot
+    match decode_qr_from_image(temp_path) {
+        Ok(qr_data) => {
+            // Clean up temp file
+            let _ = fs::remove_file(temp_path);
+            
+            // Try to parse as otpauth URI
+            if let Some(extracted_name) = extract_account_from_otpauth(&qr_data) {
+                if let Some(secret) = extract_secret_from_otpauth(&qr_data) {
+                    // Prompt for account name with default
+                    println!("Enter account name (press Enter for default) [{}]: ", extracted_name);
+                    let mut input = String::new();
+                    io::stdin().read_line(&mut input)?;
+                    
+                    let account_name = input.trim();
+                    let final_name = if account_name.is_empty() {
+                        extracted_name
+                    } else {
+                        account_name.to_string()
+                    };
+                    
+                    match save_account(&final_name, &secret) {
+                        Ok(()) => {
+                            println!("Successfully added account: {}", final_name);
+                        }
+                        Err(e) => {
+                            println!("Failed to save account: {}", e);
+                        }
+                    }
+                } else {
+                    println!("Could not extract secret from QR code");
+                }
+            } else {
+                println!("QR code does not appear to contain a valid TOTP setup");
+                println!("QR code contents: {}", qr_data);
+            }
+        }
+        Err(e) => {
+            // Clean up temp file
+            let _ = fs::remove_file(temp_path);
+            println!("Failed to decode QR code: {}", e);
+        }
+    }
+
+    println!("Press Enter to return to dashboard...");
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+
+    // Restore dashboard state
+    enable_raw_mode()?;
+    queue!(stdout, Clear(ClearType::All), Hide)?;
+    stdout.flush()?;
+
+    Ok(InputResult::RefreshStorage)
+}
+
+fn decode_qr_from_image(image_path: &str) -> Result<String, AppError> {
+    use image::ImageReader;
+    use rqrr::PreparedImage;
+    
+    // Load the image
+    let img = ImageReader::open(image_path)
+        .map_err(|e| AppError::new(format!("Failed to open image: {}", e)))?
+        .decode()
+        .map_err(|e| AppError::new(format!("Failed to decode image: {}", e)))?;
+
+    // Convert to luma (grayscale) for QR detection
+    let luma_img = img.to_luma8();
+
+    // Prepare image for QR detection
+    let mut prepared = PreparedImage::prepare(luma_img);
+    
+    // Try to find and decode QR codes
+    let grids = prepared.detect_grids();
+    if grids.is_empty() {
+        return Err(AppError::new("No QR code found in image".to_string()));
+    }
+
+    // Decode the first QR code found
+    let (_, content) = grids[0].decode()
+        .map_err(|e| AppError::new(format!("Failed to decode QR code: {:?}", e)))?;
+
+    Ok(content)
+}
+
+fn extract_account_from_otpauth(uri: &str) -> Option<String> {
+    if !uri.starts_with("otpauth://totp/") {
+        return None;
+    }
+    
+    // Extract account name from URI path
+    let path_start = uri.find("otpauth://totp/")?;
+    let path = &uri[path_start + 15..]; // Skip "otpauth://totp/"
+    
+    if let Some(query_start) = path.find('?') {
+        let account_part = &path[..query_start];
+        // URL decode and extract just the account name
+        Some(urlencoding::decode(account_part).ok()?.to_string())
+    } else {
+        Some(urlencoding::decode(path).ok()?.to_string())
+    }
+}
+
+fn extract_secret_from_otpauth(uri: &str) -> Option<String> {
+    use url::Url;
+    
+    let parsed = Url::parse(uri).ok()?;
+    let pairs: std::collections::HashMap<_, _> = parsed.query_pairs().collect();
+    pairs.get("secret").map(|s| s.to_string())
 }
