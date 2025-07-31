@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Hotpot is a command-line TOTP (Time-based One-Time Password) authenticator written in Rust. It securely stores 2FA secrets in the system keyring by default, with an optional in-memory storage mode for testing and temporary use. It provides both interactive dashboard and CLI interfaces for managing and generating TOTP codes.
+Hotpot is a command-line TOTP (Time-based One-Time Password) authenticator written in Rust. It securely stores 2FA secrets in the system keyring and provides both interactive dashboard and CLI interfaces for managing and generating TOTP codes.
 
 ## Development Commands
 
@@ -46,15 +46,11 @@ Hotpot is a command-line TOTP (Time-based One-Time Password) authenticator writt
 
 **Storage Layer (`src/main.rs:68-133`)**
 - JSON serialization of account data
-- Dual storage backends: secure keyring (default) and in-memory (optional)
 - Secure storage via system keyring (macOS Keychain, Linux Secret Service, Windows Credential Manager)
-- In-memory storage using thread-safe `OnceLock<Mutex<HashMap>>` for testing and temporary use
-- Account management (add, delete, retrieve) with backend selection
+- Account management (add, delete, retrieve)
 
 ### Key Storage Pattern
-**Keyring Storage (Default):** All secrets are stored in the system keyring under service name "hotpot" with storage key "_hotpot_storage" as JSON. Accounts are sorted alphabetically and stored as a serialized `Storage` struct.
-
-**In-Memory Storage (Optional):** When using the `--memory` flag, accounts are stored in a thread-safe static HashMap that persists only for the lifetime of the application. This is ideal for testing, development, and temporary TOTP code generation without affecting the secure keyring storage.
+**Keyring Storage:** All secrets are stored in the system keyring under service name "hotpot" with storage key "_hotpot_storage" as JSON. Accounts are sorted alphabetically and stored as a serialized `Storage` struct.
 
 ### Error Handling
 Custom `AppError` type in `src/lib.rs` with conversions from keyring, JSON, and IO errors. All errors bubble up to main for consistent user-facing error messages.
@@ -69,14 +65,6 @@ The application supports both interactive mode (default) and specific commands:
 - `hotpot export-qr --name <name>` - Export QR code to terminal
 - `hotpot --load-image <path>` - Import account from QR code image
 
-**In-Memory Storage Mode:**
-Add the `--memory` flag to any command to use temporary in-memory storage instead of the secure keyring:
-- `hotpot --memory` - Interactive dashboard with in-memory storage
-- `hotpot --memory add <name>` - Add account to memory (lost on exit)
-- `hotpot --memory code <name>` - Generate code from memory-stored account
-- `hotpot --memory delete <name>` - Delete account from memory
-
-This mode is perfect for testing, development, or temporary use without affecting your persistent secure storage.
 
 ## Dependencies
 

@@ -9,7 +9,6 @@ Built with Rust for security, performance, and reliability.
 ## Features
 
 - 🔒 **Secure storage** using system keyring (Keychain/libsecret/Credential Manager)
-- 🧪 **In-memory mode** for testing and temporary use (optional `--memory` flag)
 - 🕒 **TOTP (RFC 6238)** code generation with customizable algorithms (SHA1/SHA256/SHA512)
 - 💻 **Interactive dashboard** with real-time codes, progress bars, and fuzzy search
 - 📋 **One-click copy** to clipboard with visual feedback
@@ -91,29 +90,6 @@ hotpot export-qr --name <account-name>
 
 This will display a QR code in the terminal that can be scanned by authenticator apps.
 
-### In-Memory Storage Mode
-
-For testing, development, or temporary use, you can use the `--memory` flag to store accounts in memory instead of the secure keyring. Data is lost when the application exits.
-
-```bash
-# Interactive dashboard with in-memory storage
-hotpot --memory
-
-# Add account to memory (temporary)
-hotpot --memory add test-account
-
-# Generate code from memory-stored account
-hotpot --memory code test-account
-
-# Delete account from memory
-hotpot --memory delete test-account
-```
-
-**Use cases for in-memory mode:**
-- 🧪 **Testing**: Experiment without affecting your secure storage
-- 🔄 **Development**: Isolate development data from production accounts  
-- ⏱️ **Temporary codes**: Generate TOTP codes without permanent storage
-- 🎯 **Demonstrations**: Show functionality without storing sensitive data
 
 ## Security
 
@@ -122,7 +98,6 @@ hotpot --memory delete test-account
 - Linux: Secret Service API/libsecret
 - Windows: Windows Credential Manager
 
-**In-Memory Storage:** When using the `--memory` flag, accounts are stored temporarily in application memory and are automatically deleted when the program exits. This mode never touches the secure keyring and is safe for testing or temporary use.
 
 ## Development
 
@@ -161,8 +136,6 @@ cargo run
 # Run with specific arguments
 cargo run -- add github
 
-# Test with in-memory storage
-cargo run -- --memory add test-account
 
 # Check code quality
 cargo clippy
@@ -206,7 +179,6 @@ The project maintains high code quality standards:
 
 ### Recent Improvements
 
-- **In-Memory Storage**: Added `--memory` flag for testing and temporary use without affecting secure storage
 - **Enhanced Dashboard**: Refactored UI code for better maintainability and performance
 - **Comprehensive Testing**: Added 25+ unit tests covering core functionality
 - **Improved UX**: Added visual feedback for copied codes and smooth progress bars

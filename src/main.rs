@@ -2,9 +2,7 @@ use clap::{Parser, Subcommand};
 use keyring::Entry;
 use rpassword::prompt_password;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::error::Error;
-use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::io::{self, Write};
 
@@ -16,7 +14,6 @@ use hotpot::AppError;
 const SERVICE_NAME: &str = "hotpot";
 const STORAGE_KEY: &str = "_hotpot_storage";
 
-static MEMORY_STORAGE: OnceLock<Mutex<HashMap<String, Storage>>> = OnceLock::new();
 
 #[derive(Parser)]
 #[command(name = "hotpot")]
@@ -26,9 +23,6 @@ struct Cli {
     #[arg(short = 'l', long = "load-image", value_name = "IMAGE_PATH")]
     load_image: Option<String>,
     
-    /// Use in-memory storage instead of secure keyring storage
-    #[arg(short = 'm', long = "memory")]
-    memory: bool,
     
     #[command(subcommand)]
     command: Option<Commands>,
@@ -65,38 +59,25 @@ struct Storage {
     accounts: Vec<Account>,
 }
 
-fn get_storage(use_memory: bool) -> Result<Storage, AppError> {
-    if use_memory {
-        let storage_map = MEMORY_STORAGE.get_or_init(|| Mutex::new(HashMap::new()));
-        let storage = storage_map.lock().unwrap();
-        Ok(storage.get(STORAGE_KEY).cloned().unwrap_or_default())
-    } else {
-        let entry = Entry::new(SERVICE_NAME, STORAGE_KEY).map_err(AppError::from)?;
+fn get_storage() -> Result<Storage, AppError> {
+    let entry = Entry::new(SERVICE_NAME, STORAGE_KEY).map_err(AppError::from)?;
 
-        match entry.get_password() {
-            Ok(data) => Ok(serde_json::from_str(&data)?),
-            Err(keyring::Error::NoEntry) => Ok(Storage::default()),
-            Err(e) => Err(AppError::from(e)),
-        }
+    match entry.get_password() {
+        Ok(data) => Ok(serde_json::from_str(&data)?),
+        Err(keyring::Error::NoEntry) => Ok(Storage::default()),
+        Err(e) => Err(AppError::from(e)),
     }
 }
 
-fn save_storage(storage: &Storage, use_memory: bool) -> Result<(), AppError> {
-    if use_memory {
-        let storage_map = MEMORY_STORAGE.get_or_init(|| Mutex::new(HashMap::new()));
-        let mut mem_storage = storage_map.lock().unwrap();
-        mem_storage.insert(STORAGE_KEY.to_string(), storage.clone());
-        Ok(())
-    } else {
-        let data = serde_json::to_string(storage)?;
-        Entry::new(SERVICE_NAME, STORAGE_KEY)?
-            .set_password(&data)
-            .map_err(AppError::from)
-    }
+fn save_storage(storage: &Storage) -> Result<(), AppError> {
+    let data = serde_json::to_string(storage)?;
+    Entry::new(SERVICE_NAME, STORAGE_KEY)?
+        .set_password(&data)
+        .map_err(AppError::from)
 }
 
-fn save_account(name: &str, secret: &str, use_memory: bool) -> Result<(), AppError> {
-    let mut storage = get_storage(use_memory)?;
+fn save_account(name: &str, secret: &str) -> Result<(), AppError> {
+    let mut storage = get_storage()?;
     if storage.accounts.iter().any(|a| a.name == name) {
         return Err(AppError::new(format!("Account '{}' already exists", name)));
     }
@@ -104,11 +85,11 @@ fn save_account(name: &str, secret: &str, use_memory: bool) -> Result<(), AppErr
         .accounts
         .push(Account::new(name.to_string(), secret.to_string()));
     storage.accounts.sort_by(|a, b| a.name.cmp(&b.name));
-    save_storage(&storage, use_memory)
+    save_storage(&storage)
 }
 
-fn get_account(name: &str, use_memory: bool) -> Result<Account, AppError> {
-    let storage = get_storage(use_memory)?;
+fn get_account(name: &str) -> Result<Account, AppError> {
+    let storage = get_storage()?;
     storage
         .accounts
         .iter()
@@ -117,14 +98,14 @@ fn get_account(name: &str, use_memory: bool) -> Result<Account, AppError> {
         .ok_or_else(|| AppError::new(format!("Account '{}' not found", name)))
 }
 
-fn delete_account(name: &str, use_memory: bool) -> Result<(), AppError> {
-    let mut storage = get_storage(use_memory)?;
+fn delete_account(name: &str) -> Result<(), AppError> {
+    let mut storage = get_storage()?;
     let initial_len = storage.accounts.len();
     storage.accounts.retain(|a| a.name != name);
     if storage.accounts.len() == initial_len {
         return Err(AppError::new(format!("Account '{}' not found", name)));
     }
-    save_storage(&storage, use_memory)
+    save_storage(&storage)
 }
 
 fn handle_error(err: AppError) {
@@ -237,7 +218,6 @@ fn prompt_account_name(default: &str) -> Result<String, AppError> {
 
 fn main() {
     let cli = Cli::parse();
-    let use_memory = cli.memory;
 
     let result = match (&cli.load_image, &cli.command) {
         (Some(image_path), None) => {
@@ -249,7 +229,7 @@ fn main() {
                         Ok((default_name, secret, issuer)) => {
                             match prompt_account_name(&default_name) {
                                 Ok(account_name) => {
-                                    save_account(&account_name, &secret, use_memory)
+                                    save_account(&account_name, &secret)
                                         .map(|_| println!("Added account: {} (from {})", account_name, issuer))
                                 }
                                 Err(e) => Err(e),
@@ -264,12 +244,12 @@ fn main() {
         (Some(_), Some(_)) => {
             Err(AppError::new("Cannot use --load-image with subcommands"))
         }
-        (None, None) => dashboard::show(use_memory),
+        (None, None) => dashboard::show(),
         (None, Some(Commands::Add { name })) => match prompt_password("Enter the Base32 secret: ") {
-            Ok(secret) => save_account(name, &secret, use_memory).map(|_| println!("Added account: {}", name)),
+            Ok(secret) => save_account(name, &secret).map(|_| println!("Added account: {}", name)),
             Err(err) => Err(AppError::new(err.to_string())),
         },
-        (None, Some(Commands::Code { name })) => get_account(name, use_memory).and_then(|account| {
+        (None, Some(Commands::Code { name })) => get_account(name).and_then(|account| {
             let duration = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("System time is before Unix epoch");
@@ -283,10 +263,10 @@ fn main() {
             })
         }),
         (None, Some(Commands::Delete { name })) => {
-            delete_account(name, use_memory).map(|_| println!("Deleted account: {}", name))
+            delete_account(name).map(|_| println!("Deleted account: {}", name))
         }
         (None, Some(Commands::ExportQr { name })) => {
-            get_account(name, use_memory).and_then(|account| export_qr_code(name, &account.secret))
+            get_account(name).and_then(|account| export_qr_code(name, &account.secret))
         }
     };
 
