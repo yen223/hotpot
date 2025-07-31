@@ -588,11 +588,22 @@ fn handle_add_method_mode_char(
     }
 }
 
-fn handle_add_mode(stdout: &mut io::Stdout, name: &str) -> Result<InputResult, AppError> {
-    // Temporarily restore terminal state
+fn setup_terminal_for_input(stdout: &mut io::Stdout) -> Result<(), AppError> {
     queue!(stdout, Clear(ClearType::All), MoveTo(0, 0), Show)?;
     stdout.flush()?;
     disable_raw_mode()?;
+    Ok(())
+}
+
+fn restore_dashboard_state(stdout: &mut io::Stdout) -> Result<(), AppError> {
+    enable_raw_mode()?;
+    queue!(stdout, Clear(ClearType::All), Hide)?;
+    stdout.flush()?;
+    Ok(())
+}
+
+fn handle_add_mode(stdout: &mut io::Stdout, name: &str) -> Result<InputResult, AppError> {
+    setup_terminal_for_input(stdout)?;
 
     if let Ok(secret) = prompt_password("Enter the Base32 secret: ") {
         if let Ok(()) = save_account(name, &secret) {
@@ -600,9 +611,7 @@ fn handle_add_mode(stdout: &mut io::Stdout, name: &str) -> Result<InputResult, A
         }
     }
 
-    // Restore dashboard state
-    enable_raw_mode()?;
-    queue!(stdout, Clear(ClearType::All), Hide)?;
+    restore_dashboard_state(stdout)?;
 
     Ok(InputResult::RefreshStorageAndResetMode)
 }
@@ -641,7 +650,6 @@ fn handle_delete_confirmation(
         InputResult::Continue
     };
 
-    // Restore dashboard state
     enable_raw_mode()?;
     queue!(stdout, Hide)?;
     stdout.flush()?;
@@ -674,10 +682,7 @@ fn handle_export_qr(
 ) -> Result<InputResult, AppError> {
     use qrcode::{QrCode, render::unicode};
 
-    // Clear screen and show cursor
-    queue!(stdout, Clear(ClearType::All), MoveTo(0, 0), Show)?;
-    stdout.flush()?;
-    disable_raw_mode()?;
+    setup_terminal_for_input(stdout)?;
 
     // Generate the otpauth URI
     let uri = account.generate_uri();
@@ -699,10 +704,7 @@ fn handle_export_qr(
     let mut input = String::new();
     io::stdin().read_line(&mut input)?;
 
-    // Restore dashboard state
-    enable_raw_mode()?;
-    queue!(stdout, Clear(ClearType::All), Hide)?;
-    stdout.flush()?;
+    restore_dashboard_state(stdout)?;
 
     Ok(InputResult::Continue)
 }
@@ -712,10 +714,7 @@ fn handle_screenshot_add(stdout: &mut io::Stdout) -> Result<InputResult, AppErro
     use std::process::Command;
     use std::fs;
 
-    // Clear screen and show cursor
-    queue!(stdout, Clear(ClearType::All), MoveTo(0, 0), Show)?;
-    stdout.flush()?;
-    disable_raw_mode()?;
+    setup_terminal_for_input(stdout)?;
 
     println!("Screenshot mode - select area to capture QR code");
     println!("Position your cursor and drag to select the QR code area...");
@@ -737,10 +736,7 @@ fn handle_screenshot_add(stdout: &mut io::Stdout) -> Result<InputResult, AppErro
         let mut input = String::new();
         io::stdin().read_line(&mut input)?;
         
-        // Restore dashboard state
-        enable_raw_mode()?;
-        queue!(stdout, Clear(ClearType::All), Hide)?;
-        stdout.flush()?;
+        restore_dashboard_state(stdout)?;
         return Ok(InputResult::Continue);
     }
 
@@ -792,10 +788,7 @@ fn handle_screenshot_add(stdout: &mut io::Stdout) -> Result<InputResult, AppErro
     let mut input = String::new();
     io::stdin().read_line(&mut input)?;
 
-    // Restore dashboard state
-    enable_raw_mode()?;
-    queue!(stdout, Clear(ClearType::All), Hide)?;
-    stdout.flush()?;
+    restore_dashboard_state(stdout)?;
 
     Ok(InputResult::RefreshStorageAndResetMode)
 }
