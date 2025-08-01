@@ -16,11 +16,10 @@ fn test_file_creation_with_proper_permissions() {
     ]);
 
     if ctx.file_path().exists() {
-        let metadata = fs::metadata(ctx.file_path()).expect("Failed to get file metadata");
-
         // On Unix systems, check that file permissions are restrictive (600)
         #[cfg(unix)]
         {
+            let metadata = fs::metadata(ctx.file_path()).expect("Failed to get file metadata");
             let permissions = metadata.permissions();
             let mode = permissions.mode();
             // Check that only owner has read/write permissions (0o600)
