@@ -4,9 +4,9 @@ use rpassword::prompt_password;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::fs;
+use std::io::{self, Write};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
-use std::io::{self, Write};
 
 mod dashboard;
 mod totp;
@@ -16,16 +16,14 @@ use hotpot::AppError;
 const SERVICE_NAME: &str = "hotpot";
 const STORAGE_KEY: &str = "_hotpot_storage";
 
-
 #[derive(Parser)]
 #[command(name = "hotpot")]
 #[command(about = "A simple CLI for TOTP-based 2FA", long_about = None)]
 struct Cli {
-    
     /// Use file-backed storage instead of secure keyring storage
     #[arg(short = 'f', long = "file", value_name = "FILE_PATH")]
     file: Option<String>,
-    
+
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -88,7 +86,7 @@ fn get_storage(file_path: Option<&str>) -> Result<Storage, AppError> {
 
 fn save_storage(storage: &Storage, file_path: Option<&str>) -> Result<(), AppError> {
     let data = serde_json::to_string_pretty(storage)?;
-    
+
     if let Some(path) = file_path {
         // File-backed storage
         if let Some(parent) = Path::new(path).parent() {
@@ -174,7 +172,7 @@ fn load_qr_code_from_image(image_path: &str) -> Result<String, AppError> {
     // Convert to luma (grayscale) for QR code detection
     let luma_img = img.to_luma8();
     let mut prepared_img = PreparedImage::prepare(luma_img);
-    
+
     // Find and decode QR codes
     let grids = prepared_img.detect_grids();
     if grids.is_empty() {
@@ -182,7 +180,8 @@ fn load_qr_code_from_image(image_path: &str) -> Result<String, AppError> {
     }
 
     // Decode the first QR code found
-    let (_, content) = grids[0].decode()
+    let (_, content) = grids[0]
+        .decode()
         .map_err(|e| AppError::new(format!("Failed to decode QR code: {:?}", e)))?;
 
     Ok(content)
@@ -194,14 +193,14 @@ fn parse_otpauth_uri(uri: &str) -> Result<(String, String, String), AppError> {
     }
 
     // Parse the URI manually
-    let url = url::Url::parse(uri)
-        .map_err(|e| AppError::new(format!("Failed to parse URI: {}", e)))?;
+    let url =
+        url::Url::parse(uri).map_err(|e| AppError::new(format!("Failed to parse URI: {}", e)))?;
 
     // Extract account name from path
     let path = url.path().trim_start_matches('/');
     let account_name = if path.contains(':') {
         // Format: issuer:account or account
-        path.split(':').last().unwrap_or(path).to_string()
+        path.split(':').next_back().unwrap_or(path).to_string()
     } else {
         path.to_string()
     };
@@ -209,7 +208,7 @@ fn parse_otpauth_uri(uri: &str) -> Result<(String, String, String), AppError> {
     // Extract secret from query parameters
     let mut secret = String::new();
     let mut issuer = String::new();
-    
+
     for (key, value) in url.query_pairs() {
         match key.as_ref() {
             "secret" => secret = value.to_string(),
@@ -233,10 +232,10 @@ fn parse_otpauth_uri(uri: &str) -> Result<(String, String, String), AppError> {
 fn prompt_account_name(default: &str) -> Result<String, AppError> {
     print!("Enter account name [{}]: ", default);
     io::stdout().flush().map_err(AppError::from)?;
-    
+
     let mut input = String::new();
     io::stdin().read_line(&mut input).map_err(AppError::from)?;
-    
+
     let name = input.trim();
     if name.is_empty() {
         Ok(default.to_string())
@@ -247,37 +246,45 @@ fn prompt_account_name(default: &str) -> Result<String, AppError> {
 
 fn validate_file_path(path: &str) -> Result<(), AppError> {
     let path_obj = Path::new(path);
-    
+
     // Check if parent directory exists or can be created
     if let Some(parent) = path_obj.parent() {
         if !parent.exists() {
-            fs::create_dir_all(parent)
-                .map_err(|e| AppError::new(format!("Cannot create directory '{}': {}", parent.display(), e)))?;
+            fs::create_dir_all(parent).map_err(|e| {
+                AppError::new(format!(
+                    "Cannot create directory '{}': {}",
+                    parent.display(),
+                    e
+                ))
+            })?;
         }
     }
-    
+
     // Check if file is readable/writable if it exists
     if path_obj.exists() {
         if path_obj.is_dir() {
-            return Err(AppError::new(format!("'{}' is a directory, not a file", path)));
+            return Err(AppError::new(format!(
+                "'{}' is a directory, not a file",
+                path
+            )));
         }
-        
+
         // Try to read the file to check permissions - but only if it exists
         let metadata = fs::metadata(path_obj)
             .map_err(|e| AppError::new(format!("Cannot access file '{}': {}", path, e)))?;
-        
+
         if !metadata.is_file() {
             return Err(AppError::new(format!("'{}' is not a regular file", path)));
         }
     }
-    
+
     Ok(())
 }
 
 fn main() {
     let cli = Cli::parse();
     let file_path = cli.file.as_deref();
-    
+
     // Validate file path if provided
     if let Some(path) = file_path {
         if let Err(err) = validate_file_path(path) {
@@ -303,8 +310,12 @@ fn main() {
                                     prompt_account_name(&default_name)
                                 } {
                                     Ok(account_name) => {
-                                        save_account(&account_name, &secret, file_path)
-                                            .map(|_| println!("Added account: {} (from {})", account_name, issuer))
+                                        save_account(&account_name, &secret, file_path).map(|_| {
+                                            println!(
+                                                "Added account: {} (from {})",
+                                                account_name, issuer
+                                            )
+                                        })
                                     }
                                     Err(e) => Err(e),
                                 }
@@ -318,11 +329,14 @@ fn main() {
                 // Traditional secret input - name is required
                 if let Some(account_name) = name {
                     match prompt_password("Enter the Base32 secret: ") {
-                        Ok(secret) => save_account(account_name, &secret, file_path).map(|_| println!("Added account: {}", account_name)),
+                        Ok(secret) => save_account(account_name, &secret, file_path)
+                            .map(|_| println!("Added account: {}", account_name)),
                         Err(err) => Err(AppError::new(err.to_string())),
                     }
                 } else {
-                    Err(AppError::new("Account name is required when not using --image"))
+                    Err(AppError::new(
+                        "Account name is required when not using --image",
+                    ))
                 }
             }
         }

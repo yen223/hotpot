@@ -1,6 +1,6 @@
 mod totp;
 
-pub use totp::{Account, generate_totp, generate_otpauth_uri};
+pub use totp::{Account, generate_otpauth_uri, generate_totp};
 
 #[derive(Debug)]
 pub struct AppError {

@@ -1,22 +1,28 @@
 pub mod cli_commands;
 pub mod file_storage;
 
+use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use tempfile::TempDir;
-use std::fs;
-use std::io::Write;
 
 pub struct TestContext {
     pub temp_dir: TempDir,
     pub file_path: PathBuf,
 }
 
+impl Default for TestContext {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TestContext {
     pub fn new() -> Self {
         let temp_dir = TempDir::new().expect("Failed to create temp directory");
         let file_path = temp_dir.path().join("test_accounts.json");
-        
+
         Self {
             temp_dir,
             file_path,
@@ -67,9 +73,8 @@ pub fn run_hotpot_command(args: &[&str]) -> Output {
     cmd.arg("run");
     cmd.arg("--");
     cmd.args(args);
-    
-    cmd.output()
-        .expect("Failed to execute hotpot command")
+
+    cmd.output().expect("Failed to execute hotpot command")
 }
 
 pub fn run_hotpot_with_input(args: &[&str], input: &str) -> Output {
@@ -77,19 +82,23 @@ pub fn run_hotpot_with_input(args: &[&str], input: &str) -> Output {
     cmd.arg("run");
     cmd.arg("--");
     cmd.args(args);
-    
+
     let mut child = cmd
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
         .expect("Failed to spawn hotpot command");
-    
+
     if let Some(stdin) = child.stdin.as_mut() {
-        stdin.write_all(input.as_bytes()).expect("Failed to write to stdin");
+        stdin
+            .write_all(input.as_bytes())
+            .expect("Failed to write to stdin");
     }
-    
-    child.wait_with_output().expect("Failed to wait for command")
+
+    child
+        .wait_with_output()
+        .expect("Failed to wait for command")
 }
 
 pub fn assert_totp_valid(output: &str) {
@@ -99,18 +108,27 @@ pub fn assert_totp_valid(output: &str) {
     } else {
         output.trim()
     };
-    
-    assert_eq!(code.len(), 6, "TOTP code should be 6 digits, got: '{}'", code);
-    assert!(code.chars().all(|c| c.is_ascii_digit()), "TOTP code should only contain digits, got: '{}'", code);
+
+    assert_eq!(
+        code.len(),
+        6,
+        "TOTP code should be 6 digits, got: '{}'",
+        code
+    );
+    assert!(
+        code.chars().all(|c| c.is_ascii_digit()),
+        "TOTP code should only contain digits, got: '{}'",
+        code
+    );
 }
 
 pub fn file_contains_account(file_path: &Path, account_name: &str) -> bool {
     if let Ok(content) = fs::read_to_string(file_path) {
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
             if let Some(accounts) = json.get("accounts").and_then(|a| a.as_array()) {
-                return accounts.iter().any(|acc| {
-                    acc.get("name").and_then(|n| n.as_str()) == Some(account_name)
-                });
+                return accounts
+                    .iter()
+                    .any(|acc| acc.get("name").and_then(|n| n.as_str()) == Some(account_name));
             }
         }
     }

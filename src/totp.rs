@@ -61,7 +61,7 @@ impl Account {
         let label = format!("{}:{}", self.issuer, self.name);
         let digits = self.digits.to_string();
         let period = self.period.to_string();
-        let params = vec![
+        let params = [
             ("secret", &self.secret),
             ("issuer", &self.issuer),
             ("algorithm", &self.algorithm),
@@ -179,7 +179,7 @@ mod tests {
             },
             TestVector {
                 time: 1111111109,
-                expected_totp: 07081804,
+                expected_totp: 7081804,
                 algorithm: "SHA1",
                 secret: TEST_SECRET_SHA1,
             },

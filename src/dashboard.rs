@@ -431,6 +431,7 @@ enum InputResult {
     RefreshStorageAndResetMode,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_input(
     mode: &mut DashboardMode,
     selected: &mut usize,
@@ -510,7 +511,7 @@ fn handle_input(
             }) => match mode {
                 DashboardMode::Add => {
                     if !name_buffer.trim().is_empty() {
-                        return handle_add_mode(stdout, &name_buffer, file_path);
+                        return handle_add_mode(stdout, name_buffer, file_path);
                     }
                 }
                 _ => {
