@@ -1,0 +1,7 @@
+{
+  "github": {
+    "secret": "JBSWY3DPEHPK3PXP",
+    "algorithm": "SHA1",
+    "digits": 6,
+    "period": 30
+    // Missing closing brace and epoch field

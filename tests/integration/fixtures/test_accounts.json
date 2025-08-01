@@ -1,0 +1,40 @@
+{
+  "accounts": [
+    {
+      "name": "github",
+      "secret": "JBSWY3DPEHPK3PXP",
+      "issuer": "",
+      "algorithm": "SHA1",
+      "digits": 6,
+      "period": 30,
+      "epoch": 0
+    },
+    {
+      "name": "google",
+      "secret": "HXDMVJECJJWSRB3HWIZR4IFUGFTMXBOZ",
+      "issuer": "",
+      "algorithm": "SHA1",
+      "digits": 6,
+      "period": 30,
+      "epoch": 0
+    },
+    {
+      "name": "aws",
+      "secret": "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+      "issuer": "",
+      "algorithm": "SHA256",
+      "digits": 8,
+      "period": 60,
+      "epoch": 0
+    },
+    {
+      "name": "custom@example.com",
+      "secret": "MFRGG3DFMZTWQ3DKMRYGC5TPMFWW24DPNBZXI33TMFXGCIDDHMXHA4TSMF2HGIDDHMYTKMJZMM2DI5TSMF2HE3TDMFXGS3DJMJQWO33UMF2HE33DN5XHI4DOMFRGG3DFMZTWQ3DKMRYGC5TP",
+      "issuer": "",
+      "algorithm": "SHA512",
+      "digits": 6,
+      "period": 30,
+      "epoch": 1234567890
+    }
+  ]
+}

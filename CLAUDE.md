@@ -15,7 +15,8 @@ Hotpot is a command-line TOTP (Time-based One-Time Password) authenticator writt
 - `cargo run -- <subcommand>` - Run with specific CLI arguments (e.g., `cargo run -- add github`)
 
 ### Testing and Quality
-- `cargo test` - Run comprehensive unit tests (25+ tests covering core functionality)
+- `cargo test` - Run all tests (48 total: 25 unit tests + 4 TOTP tests + 19 integration tests)
+- `cargo test --test lib` - Run integration tests only
 - `cargo check` - Quick compile check without producing binary  
 - `cargo clippy` - Run linter for code quality
 
@@ -55,6 +56,23 @@ Hotpot is a command-line TOTP (Time-based One-Time Password) authenticator writt
 **Keyring Storage (Default):** All secrets are stored in the system keyring under service name "hotpot" with storage key "_hotpot_storage" as JSON. Accounts are sorted alphabetically and stored as a serialized `Storage` struct.
 
 **File-Backed Storage (Optional):** When using the `--file` flag, accounts are stored in a JSON file at the specified path. The file is created with proper permissions (600) and parent directories are created automatically if needed. This mode is ideal for portable configurations, server environments, or when keyring access is unavailable.
+
+**File Format Example:**
+```json
+{
+  "accounts": [
+    {
+      "name": "github",
+      "secret": "JBSWY3DPEHPK3PXP",
+      "issuer": "",
+      "algorithm": "SHA1",
+      "digits": 6,
+      "period": 30,
+      "epoch": 0
+    }
+  ]
+}
+```
 
 ### Error Handling
 Custom `AppError` type in `src/lib.rs` with conversions from keyring, JSON, and IO errors. All errors bubble up to main for consistent user-facing error messages.
@@ -101,7 +119,7 @@ This mode is perfect for portable configurations, server environments, or when k
 
 ## Dependencies
 
-Key external crates:
+**Runtime Dependencies:**
 - `keyring` - Secure credential storage
 - `clap` - CLI argument parsing
 - `crossterm` - Terminal UI and input handling
@@ -110,6 +128,9 @@ Key external crates:
 - `arboard` - Clipboard operations
 - `image` + `rqrr` - QR code image processing and detection
 - `url` + `urlencoding` - otpauth URI handling
+
+**Development Dependencies:**
+- `tempfile` - Temporary file management for integration tests
 
 ## Code Quality & Testing
 
@@ -157,3 +178,54 @@ The codebase has been significantly refactored for maintainability:
 5. **Reduced Variable Redundancy**: Eliminated unnecessary variable tracking
 
 These improvements make the code more testable, maintainable, and easier to understand while preserving all functionality.
+
+### Integration Test Suite (`tests/`)
+The project includes comprehensive integration tests that validate end-to-end CLI functionality using file-backed storage to avoid keychain dependencies.
+
+**Test Structure:**
+```
+tests/
+├── integration/
+│   ├── mod.rs              # Test utilities and TestContext
+│   ├── cli_commands.rs     # CLI command integration tests (11 tests)
+│   ├── file_storage.rs     # File storage backend tests (8 tests)
+│   └── fixtures/           # Test data files with known TOTP secrets
+└── lib.rs                  # Integration test entry point
+```
+
+**CLI Command Tests (11 tests):**
+- TOTP code generation for existing/nonexistent accounts
+- Account deletion with confirmation handling  
+- QR code export functionality
+- Multiple accounts in same file operations
+- Invalid JSON file error handling
+- File creation for new storage locations
+
+**File Storage Backend Tests (8 tests):**
+- File permissions (600) and parent directory auto-creation
+- Empty file and malformed JSON error handling
+- Missing required fields validation
+- Concurrent file access safety
+- Large file handling (100+ accounts)
+- Special characters in account names
+- File persistence across multiple operations
+
+**Test Infrastructure:**
+- `TestContext` - Manages temporary files with automatic cleanup
+- Pre-populated fixtures with RFC 6238 compliant test data
+- Command execution helpers with stdin simulation
+- Account validation and JSON parsing utilities
+
+**Key Benefits:**
+- **Keychain-free**: No system keyring pollution during testing
+- **CI/CD ready**: Works in any environment without external dependencies
+- **Isolated**: Each test uses temporary files for complete isolation
+- **Fast**: No network calls or system service dependencies
+- **Comprehensive**: Covers all CLI commands, storage backends, and edge cases
+
+**Running Integration Tests:**
+- `cargo test --test lib` - Run only integration tests
+- `cargo test integration::cli_commands` - Run CLI command tests only  
+- `cargo test integration::file_storage` - Run file storage tests only
+
+The integration test suite validates that the `--file` storage mode provides identical functionality to keyring storage while being completely portable and testable.
