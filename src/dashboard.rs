@@ -612,8 +612,10 @@ fn handle_add_mode_char(c: char, name_buffer: &mut String) -> Result<InputResult
 fn handle_add_method_mode_char(
     c: char,
     mode: &mut DashboardMode,
+    #[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
     stdout: &mut io::Stdout,
     name_buffer: &mut String,
+    #[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
     file_path: Option<&str>,
 ) -> Result<InputResult, AppError> {
     match c.to_ascii_lowercase() {
@@ -844,6 +846,7 @@ fn handle_screenshot_add(
     Ok(InputResult::RefreshStorageAndResetMode)
 }
 
+#[cfg(target_os = "macos")]
 fn decode_qr_from_image(image_path: &str) -> Result<String, AppError> {
     use image::ImageReader;
     use rqrr::PreparedImage;
@@ -874,6 +877,7 @@ fn decode_qr_from_image(image_path: &str) -> Result<String, AppError> {
     Ok(content)
 }
 
+#[cfg(target_os = "macos")]
 fn extract_account_from_otpauth(uri: &str) -> Option<String> {
     if !uri.starts_with("otpauth://totp/") {
         return None;
@@ -892,6 +896,7 @@ fn extract_account_from_otpauth(uri: &str) -> Option<String> {
     }
 }
 
+#[cfg(target_os = "macos")]
 fn extract_secret_from_otpauth(uri: &str) -> Option<String> {
     use url::Url;
 
