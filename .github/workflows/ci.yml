@@ -18,13 +18,6 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macOS-latest]
-        rust: ["1.86.0", beta]
-        exclude:
-          # Reduce CI load by testing beta only on Ubuntu
-          - os: windows-latest
-            rust: beta
-          - os: macOS-latest
-            rust: beta
 
     steps:
     - name: Checkout code
@@ -33,7 +26,7 @@ jobs:
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@v1
       with:
-        toolchain: ${{ matrix.rust }}
+        toolchain: 1.86.0
         components: rustfmt, clippy
 
     - name: Cache cargo registry
