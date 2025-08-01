@@ -17,7 +17,7 @@ fn test_file_creation_with_proper_permissions() {
 
     if ctx.file_path().exists() {
         let metadata = fs::metadata(ctx.file_path()).expect("Failed to get file metadata");
-        
+
         // On Unix systems, check that file permissions are restrictive (600)
         #[cfg(unix)]
         {
