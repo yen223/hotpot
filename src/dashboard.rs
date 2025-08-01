@@ -612,11 +612,9 @@ fn handle_add_mode_char(c: char, name_buffer: &mut String) -> Result<InputResult
 fn handle_add_method_mode_char(
     c: char,
     mode: &mut DashboardMode,
-    #[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
-    stdout: &mut io::Stdout,
+    #[cfg_attr(not(target_os = "macos"), allow(unused_variables))] stdout: &mut io::Stdout,
     name_buffer: &mut String,
-    #[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
-    file_path: Option<&str>,
+    #[cfg_attr(not(target_os = "macos"), allow(unused_variables))] file_path: Option<&str>,
 ) -> Result<InputResult, AppError> {
     match c.to_ascii_lowercase() {
         #[cfg(target_os = "macos")]
