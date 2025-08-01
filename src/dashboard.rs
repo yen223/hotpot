@@ -127,7 +127,9 @@ impl ScreenBuffer {
             SetAttribute(Attribute::Reset),
             SetForegroundColor(Color::Reset),
             SetBackgroundColor(Color::Reset),
-            Print(copied_part)
+            SetForegroundColor(Color::Green),
+            Print(copied_part),
+            SetForegroundColor(Color::Reset)
         )?;
         Ok(())
     }
@@ -224,14 +226,14 @@ impl ScreenBuffer {
         let code = generate_totp(account, now)?;
 
         let max_width = min(self.width, 64);
-        let copied_text = "  copied";
+        let copied_text = "  Copied to clipboard!";
         let copied_indicator = if copied_state.is_recently_copied(&account.name) {
             copied_text
         } else {
             ""
         };
 
-        // Always reserve space for " copied" to keep codes aligned
+        // Always reserve space for " Copied!" to keep codes aligned
         let code_str = format!("{:0width$}", code, width = account.digits as usize);
         let max_name_len =
             (max_width as usize).saturating_sub(code_str.len() + copied_text.len() + 3); // 3 for padding
@@ -247,7 +249,7 @@ impl ScreenBuffer {
                 .saturating_sub(1) // left padding
                 .saturating_sub(display_name.len())
                 .saturating_sub(code_str.len())
-                .saturating_sub(copied_text.len()) // Always reserve space for " copied"
+                .saturating_sub(copied_text.len()) // Always reserve space for " Copied!"
                 .saturating_sub(1), // right padding
         );
 
@@ -260,7 +262,7 @@ impl ScreenBuffer {
             if copied_indicator.is_empty() {
                 self.write_highlighted_line(row, line);
             } else {
-                // Split at the position where " copied" begins
+                // Split at the position where " Copied!" begins
                 let split_pos = line.len() - copied_indicator.len();
                 self.write_highlighted_line_with_copied(row, line, split_pos);
             }
@@ -299,7 +301,7 @@ impl CopiedState {
     fn is_recently_copied(&self, account_name: &str) -> bool {
         if let Some(&copied_time) = self.accounts.get(account_name) {
             if let Ok(elapsed) = SystemTime::now().duration_since(copied_time) {
-                return elapsed < Duration::from_secs(2); // Show "copied" for 2 seconds
+                return elapsed < Duration::from_secs(2); // Show "Copied!" for 2 seconds
             }
         }
         false
@@ -463,7 +465,15 @@ fn handle_input(
                 code: KeyCode::Char(c),
                 ..
             }) => {
-                return handle_char_input(c, mode, selected, accounts, stdout, name_buffer, file_path);
+                return handle_char_input(
+                    c,
+                    mode,
+                    selected,
+                    accounts,
+                    stdout,
+                    name_buffer,
+                    file_path,
+                );
             }
             Event::Key(KeyEvent {
                 code: KeyCode::Backspace,
@@ -536,10 +546,14 @@ fn handle_char_input(
     file_path: Option<&str>,
 ) -> Result<InputResult, AppError> {
     match mode {
-        DashboardMode::List => handle_list_mode_char(c, mode, selected, accounts, stdout, file_path),
+        DashboardMode::List => {
+            handle_list_mode_char(c, mode, selected, accounts, stdout, file_path)
+        }
         DashboardMode::Search(query) => handle_search_mode_char(c, query, selected),
         DashboardMode::Add => handle_add_mode_char(c, name_buffer),
-        DashboardMode::AddMethod => handle_add_method_mode_char(c, mode, stdout, name_buffer, file_path),
+        DashboardMode::AddMethod => {
+            handle_add_method_mode_char(c, mode, stdout, name_buffer, file_path)
+        }
     }
 }
 
@@ -626,7 +640,11 @@ fn restore_dashboard_state(stdout: &mut io::Stdout) -> Result<(), AppError> {
     Ok(())
 }
 
-fn handle_add_mode(stdout: &mut io::Stdout, name: &str, file_path: Option<&str>) -> Result<InputResult, AppError> {
+fn handle_add_mode(
+    stdout: &mut io::Stdout,
+    name: &str,
+    file_path: Option<&str>,
+) -> Result<InputResult, AppError> {
     setup_terminal_for_input(stdout)?;
 
     if let Ok(secret) = prompt_password("Enter the Base32 secret: ") {
@@ -735,7 +753,10 @@ fn handle_export_qr(
 }
 
 #[cfg(target_os = "macos")]
-fn handle_screenshot_add(stdout: &mut io::Stdout, file_path: Option<&str>) -> Result<InputResult, AppError> {
+fn handle_screenshot_add(
+    stdout: &mut io::Stdout,
+    file_path: Option<&str>,
+) -> Result<InputResult, AppError> {
     use std::fs;
     use std::process::Command;
 

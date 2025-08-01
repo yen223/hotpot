@@ -10,18 +10,18 @@ Built with Rust for security, performance, and reliability.
 
 ## Features
 
-- 🔒 **Secure storage** using system keyring (Keychain/libsecret/Credential Manager)
-- 📁 **File-backed storage** option for portable configurations (optional `--file` flag)
-- 🕒 **TOTP (RFC 6238)** code generation with customizable algorithms (SHA1/SHA256/SHA512)
-- 💻 **Interactive dashboard** with real-time codes, progress bars, and fuzzy search
-- 📋 **One-click copy** to clipboard with visual feedback
-- 📱 **QR code export** for easy mobile app setup
-- 🖥️ **Screenshot capture** (macOS) for importing QR codes
-- ⚡ **Fast and responsive** terminal UI with smooth animations
-- 🔍 **Fuzzy search** to quickly find accounts
-- 🧪 **Comprehensive test coverage** for reliability
+- **Secure storage** using system keyring (Keychain/libsecret/Credential Manager)
+- **TOTP (RFC 6238)** code generation with customizable algorithms (SHA1/SHA256/SHA512)
+- **Interactive dashboard** with real-time codes, progress bars, and fuzzy search
+- **One-click copy** to clipboard with visual feedback
+- **QR code export** for easy mobile app setup
+- **Screenshot capture** (macOS) for importing QR codes
+- **Fast and responsive** terminal UI with smooth animations
+- **Fuzzy search** to quickly find accounts
 
 ## Installation
+
+Clone this repo, and run
 
 ```bash
 cargo install --path . --locked
@@ -112,10 +112,10 @@ hotpot --file ./my-accounts.json delete work-account
 ```
 
 **Use cases for file-backed storage:**
-- 📁 **Portable configurations**: Store accounts in a file that can be synced or backed up
-- 🖥️ **Server environments**: Use when keyring services are unavailable
-- 🔄 **Development/Testing**: Isolate test accounts from secure storage
-- 📋 **Team sharing**: Share account configurations (ensure file security)
+- **Portable configurations**: Store accounts in a file that can be synced or backed up
+- **Server environments**: Use when keyring services are unavailable
+- **Development/Testing**: Isolate test accounts from secure storage
+- **Team sharing**: Share account configurations (ensure file security)
 
 **Security Note**: File-backed storage stores secrets in plaintext JSON. Ensure proper file permissions (600) and consider encrypting the file for sensitive environments.
 

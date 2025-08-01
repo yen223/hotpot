@@ -21,9 +21,6 @@ const STORAGE_KEY: &str = "_hotpot_storage";
 #[command(name = "hotpot")]
 #[command(about = "A simple CLI for TOTP-based 2FA", long_about = None)]
 struct Cli {
-    /// Load account from QR code image
-    #[arg(short = 'l', long = "load-image", value_name = "IMAGE_PATH")]
-    load_image: Option<String>,
     
     /// Use file-backed storage instead of secure keyring storage
     #[arg(short = 'f', long = "file", value_name = "FILE_PATH")]
@@ -37,8 +34,11 @@ struct Cli {
 enum Commands {
     /// Add a new account with secret
     Add {
-        /// Account name (e.g., email or service identifier)
-        name: String,
+        /// Account name (e.g., email or service identifier). Optional when using --image (will use name from QR code or prompt)
+        name: Option<String>,
+        /// Load account from QR code image instead of prompting for secret
+        #[arg(long, value_name = "IMAGE_PATH")]
+        image: Option<String>,
     },
     /// Generate code for an account
     Code {
@@ -286,37 +286,47 @@ fn main() {
         }
     }
 
-    let result = match (&cli.load_image, &cli.command) {
-        (Some(image_path), None) => {
-            // Load account from QR code image
-            match load_qr_code_from_image(image_path) {
-                Ok(uri) => {
-                    println!("Found otpauth URI: {}", uri);
-                    match parse_otpauth_uri(&uri) {
-                        Ok((default_name, secret, issuer)) => {
-                            match prompt_account_name(&default_name) {
-                                Ok(account_name) => {
-                                    save_account(&account_name, &secret, file_path)
-                                        .map(|_| println!("Added account: {} (from {})", account_name, issuer))
+    let result = match &cli.command {
+        None => dashboard::show(file_path),
+        Some(Commands::Add { name, image }) => {
+            if let Some(image_path) = image {
+                // Load account from QR code image
+                match load_qr_code_from_image(image_path) {
+                    Ok(uri) => {
+                        println!("Found otpauth URI: {}", uri);
+                        match parse_otpauth_uri(&uri) {
+                            Ok((default_name, secret, issuer)) => {
+                                // Use provided name or prompt for name with default from QR code
+                                match if let Some(provided_name) = name {
+                                    Ok(provided_name.clone())
+                                } else {
+                                    prompt_account_name(&default_name)
+                                } {
+                                    Ok(account_name) => {
+                                        save_account(&account_name, &secret, file_path)
+                                            .map(|_| println!("Added account: {} (from {})", account_name, issuer))
+                                    }
+                                    Err(e) => Err(e),
                                 }
-                                Err(e) => Err(e),
                             }
+                            Err(e) => Err(e),
                         }
-                        Err(e) => Err(e),
                     }
+                    Err(e) => Err(e),
                 }
-                Err(e) => Err(e),
+            } else {
+                // Traditional secret input - name is required
+                if let Some(account_name) = name {
+                    match prompt_password("Enter the Base32 secret: ") {
+                        Ok(secret) => save_account(account_name, &secret, file_path).map(|_| println!("Added account: {}", account_name)),
+                        Err(err) => Err(AppError::new(err.to_string())),
+                    }
+                } else {
+                    Err(AppError::new("Account name is required when not using --image"))
+                }
             }
         }
-        (Some(_), Some(_)) => {
-            Err(AppError::new("Cannot use --load-image with subcommands"))
-        }
-        (None, None) => dashboard::show(file_path),
-        (None, Some(Commands::Add { name })) => match prompt_password("Enter the Base32 secret: ") {
-            Ok(secret) => save_account(name, &secret, file_path).map(|_| println!("Added account: {}", name)),
-            Err(err) => Err(AppError::new(err.to_string())),
-        },
-        (None, Some(Commands::Code { name })) => get_account(name, file_path).and_then(|account| {
+        Some(Commands::Code { name }) => get_account(name, file_path).and_then(|account| {
             let duration = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("System time is before Unix epoch");
@@ -329,10 +339,10 @@ fn main() {
                 );
             })
         }),
-        (None, Some(Commands::Delete { name })) => {
+        Some(Commands::Delete { name }) => {
             delete_account(name, file_path).map(|_| println!("Deleted account: {}", name))
         }
-        (None, Some(Commands::ExportQr { name })) => {
+        Some(Commands::ExportQr { name }) => {
             get_account(name, file_path).and_then(|account| export_qr_code(name, &account.secret))
         }
     };

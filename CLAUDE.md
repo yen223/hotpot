@@ -86,7 +86,8 @@ The application supports both interactive mode (default) and specific commands:
 - `hotpot code <name>` - Generate single code for account
 - `hotpot delete <name>` - Delete account with confirmation  
 - `hotpot export-qr --name <name>` - Export QR code to terminal
-- `hotpot --load-image <path>` - Import account from QR code image
+- `hotpot add --image <path>` - Import account from QR code image (optionally specify account name)
+- `hotpot add <name> --image <path>` - Import account from QR code image with specific name
 
 **File-Backed Storage Mode:**
 Add the `--file` flag to any command to use file-backed storage instead of the secure keyring:
