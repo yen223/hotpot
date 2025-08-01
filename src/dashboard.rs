@@ -875,6 +875,7 @@ fn decode_qr_from_image(image_path: &str) -> Result<String, AppError> {
     Ok(content)
 }
 
+#[cfg(target_os = "macos")]
 fn extract_account_from_otpauth(uri: &str) -> Option<String> {
     if !uri.starts_with("otpauth://totp/") {
         return None;
@@ -893,6 +894,7 @@ fn extract_account_from_otpauth(uri: &str) -> Option<String> {
     }
 }
 
+#[cfg(target_os = "macos")]
 fn extract_secret_from_otpauth(uri: &str) -> Option<String> {
     use url::Url;
 
@@ -1138,6 +1140,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn test_extract_account_from_otpauth_valid() {
         let uri = "otpauth://totp/GitHub?secret=ABC123&issuer=GitHub";
         let result = extract_account_from_otpauth(uri);
@@ -1145,6 +1148,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn test_extract_account_from_otpauth_with_encoded_name() {
         let uri = "otpauth://totp/My%20Account?secret=ABC123";
         let result = extract_account_from_otpauth(uri);
@@ -1152,6 +1156,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn test_extract_account_from_otpauth_no_query() {
         let uri = "otpauth://totp/SimpleAccount";
         let result = extract_account_from_otpauth(uri);
@@ -1159,6 +1164,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn test_extract_account_from_otpauth_invalid() {
         let uri = "invalid://uri";
         let result = extract_account_from_otpauth(uri);
@@ -1170,6 +1176,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn test_extract_secret_from_otpauth_valid() {
         let uri = "otpauth://totp/GitHub?secret=ABC123&issuer=GitHub";
         let result = extract_secret_from_otpauth(uri);
@@ -1177,6 +1184,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn test_extract_secret_from_otpauth_no_secret() {
         let uri = "otpauth://totp/GitHub?issuer=GitHub";
         let result = extract_secret_from_otpauth(uri);
@@ -1184,6 +1192,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn test_extract_secret_from_otpauth_invalid_uri() {
         let uri = "invalid://uri";
         let result = extract_secret_from_otpauth(uri);
