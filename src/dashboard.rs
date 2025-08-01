@@ -617,7 +617,8 @@ fn handle_add_method_mode_char(
     file_path: Option<&str>,
 ) -> Result<InputResult, AppError> {
     match c.to_ascii_lowercase() {
-        's' if cfg!(target_os = "macos") => handle_screenshot_add(stdout, file_path),
+        #[cfg(target_os = "macos")]
+        's' => handle_screenshot_add(stdout, file_path),
         'm' => {
             *mode = DashboardMode::Add;
             name_buffer.clear();
