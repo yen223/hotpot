@@ -875,7 +875,6 @@ fn decode_qr_from_image(image_path: &str) -> Result<String, AppError> {
     Ok(content)
 }
 
-#[cfg(target_os = "macos")]
 fn extract_account_from_otpauth(uri: &str) -> Option<String> {
     if !uri.starts_with("otpauth://totp/") {
         return None;
@@ -894,7 +893,6 @@ fn extract_account_from_otpauth(uri: &str) -> Option<String> {
     }
 }
 
-#[cfg(target_os = "macos")]
 fn extract_secret_from_otpauth(uri: &str) -> Option<String> {
     use url::Url;
 
