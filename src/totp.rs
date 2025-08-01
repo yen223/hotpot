@@ -71,11 +71,11 @@ impl Account {
 
         let query = params
             .iter()
-            .map(|(k, v)| format!("{}={}", k, v))
+            .map(|(k, v)| format!("{k}={v}"))
             .collect::<Vec<_>>()
             .join("&");
 
-        format!("otpauth://totp/{}?{}", label, query)
+        format!("otpauth://totp/{label}?{query}")
     }
 }
 
