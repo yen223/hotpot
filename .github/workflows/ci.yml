@@ -8,6 +8,8 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # Pin Rust version to ensure consistent clippy behavior across environments
+  RUST_VERSION: "1.86.0"
 
 jobs:
   test:
@@ -16,7 +18,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macOS-latest]
-        rust: [stable, beta]
+        rust: ["1.86.0", beta]
         exclude:
           # Reduce CI load by testing beta only on Ubuntu
           - os: windows-latest
@@ -74,7 +76,7 @@ jobs:
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@v1
       with:
-        toolchain: stable
+        toolchain: 1.86.0
 
     - name: Check documentation
       run: cargo doc --no-deps --verbose
@@ -90,7 +92,7 @@ jobs:
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@v1
       with:
-        toolchain: stable
+        toolchain: 1.86.0
 
     - name: Install cargo-audit
       run: cargo install cargo-audit
