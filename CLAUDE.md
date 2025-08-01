@@ -19,6 +19,16 @@ Hotpot is a command-line TOTP (Time-based One-Time Password) authenticator writt
 - `cargo test --test lib` - Run integration tests only
 - `cargo check` - Quick compile check without producing binary  
 - `cargo clippy` - Run linter for code quality
+- `cargo fmt` - Format code according to Rust standards
+
+**GitHub Actions CI Pipeline:**
+The project includes a comprehensive CI pipeline (`.github/workflows/ci.yml`) that runs on every push and PR:
+- **Cross-platform testing**: Ubuntu, Windows, macOS
+- **Multiple Rust versions**: stable, beta
+- **Zero-warning policy**: Clippy configured to fail on any warnings
+- **Full test suite**: All 48 tests run on every commit
+- **Security audit**: Dependency vulnerability scanning
+- **Documentation builds**: Ensures docs compile correctly
 
 ## Architecture
 
