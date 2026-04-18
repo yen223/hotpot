@@ -25,18 +25,18 @@ impl std::error::Error for AppError {}
 
 impl From<keyring::Error> for AppError {
     fn from(err: keyring::Error) -> Self {
-        Self::new(format!("Keyring error: {}", err))
+        Self::new(format!("Keyring error: {err}"))
     }
 }
 
 impl From<serde_json::Error> for AppError {
     fn from(err: serde_json::Error) -> Self {
-        Self::new(format!("Serialization error: {}", err))
+        Self::new(format!("Serialization error: {err}"))
     }
 }
 
 impl From<std::io::Error> for AppError {
     fn from(err: std::io::Error) -> Self {
-        Self::new(format!("IO error: {}", err))
+        Self::new(format!("IO error: {err}"))
     }
 }
