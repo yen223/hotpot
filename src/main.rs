@@ -248,16 +248,16 @@ fn validate_file_path(path: &str) -> Result<(), AppError> {
     let path_obj = Path::new(path);
 
     // Check if parent directory exists or can be created
-    if let Some(parent) = path_obj.parent() {
-        if !parent.exists() {
-            fs::create_dir_all(parent).map_err(|e| {
-                AppError::new(format!(
-                    "Cannot create directory '{}': {}",
-                    parent.display(),
-                    e
-                ))
-            })?;
-        }
+    if let Some(parent) = path_obj.parent()
+        && !parent.exists()
+    {
+        fs::create_dir_all(parent).map_err(|e| {
+            AppError::new(format!(
+                "Cannot create directory '{}': {}",
+                parent.display(),
+                e
+            ))
+        })?;
     }
 
     // Check if file is readable/writable if it exists
@@ -286,11 +286,11 @@ fn main() {
     let file_path = cli.file.as_deref();
 
     // Validate file path if provided
-    if let Some(path) = file_path {
-        if let Err(err) = validate_file_path(path) {
-            handle_error(err);
-            std::process::exit(1);
-        }
+    if let Some(path) = file_path
+        && let Err(err) = validate_file_path(path)
+    {
+        handle_error(err);
+        std::process::exit(1);
     }
 
     let result = match &cli.command {

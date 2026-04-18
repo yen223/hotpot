@@ -299,10 +299,10 @@ impl CopiedState {
     }
 
     fn is_recently_copied(&self, account_name: &str) -> bool {
-        if let Some(&copied_time) = self.accounts.get(account_name) {
-            if let Ok(elapsed) = SystemTime::now().duration_since(copied_time) {
-                return elapsed < Duration::from_secs(2); // Show "Copied!" for 2 seconds
-            }
+        if let Some(&copied_time) = self.accounts.get(account_name)
+            && let Ok(elapsed) = SystemTime::now().duration_since(copied_time)
+        {
+            return elapsed < Duration::from_secs(2); // Show "Copied!" for 2 seconds
         }
         false
     }
@@ -491,10 +491,8 @@ fn handle_input(
             },
             Event::Key(KeyEvent {
                 code: KeyCode::Up, ..
-            }) => {
-                if *selected > 0 {
-                    *selected -= 1;
-                }
+            }) if *selected > 0 => {
+                *selected -= 1;
             }
             Event::Key(KeyEvent {
                 code: KeyCode::Down,
@@ -649,10 +647,10 @@ fn handle_add_mode(
 ) -> Result<InputResult, AppError> {
     setup_terminal_for_input(stdout)?;
 
-    if let Ok(secret) = prompt_password("Enter the Base32 secret: ") {
-        if let Ok(()) = save_account(name, &secret, file_path) {
-            queue!(stdout, Print(format!("Added account: {}", name)))?;
-        }
+    if let Ok(secret) = prompt_password("Enter the Base32 secret: ")
+        && let Ok(()) = save_account(name, &secret, file_path)
+    {
+        queue!(stdout, Print(format!("Added account: {}", name)))?;
     }
 
     restore_dashboard_state(stdout)?;
@@ -712,11 +710,11 @@ fn copy_code_to_clipboard(
     let duration = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("Time went backwards");
-    if let Ok(code) = generate_totp(account, duration) {
-        if let Ok(mut clipboard) = Clipboard::new() {
-            let _ = clipboard.set_text(format!("{}", code));
-            copied_state.mark_copied(&account.name);
-        }
+    if let Ok(code) = generate_totp(account, duration)
+        && let Ok(mut clipboard) = Clipboard::new()
+    {
+        let _ = clipboard.set_text(format!("{}", code));
+        copied_state.mark_copied(&account.name);
     }
     Ok(())
 }
