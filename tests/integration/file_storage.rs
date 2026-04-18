@@ -173,7 +173,7 @@ fn test_large_file_handling() {
     let mut accounts = Vec::new();
     for i in 0..100 {
         let account_data = serde_json::json!({
-            "name": format!("account{}", i),
+            "name": format!("account{i}"),
             "secret": "JBSWY3DPEHPK3PXP",
             "issuer": "",
             "algorithm": "SHA1",

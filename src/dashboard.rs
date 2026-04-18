@@ -773,7 +773,7 @@ fn handle_screenshot_add(
         .arg("-r") // No drop shadow
         .arg(temp_path)
         .output()
-        .map_err(|e| AppError::new(format!("Failed to call screencapture: {}", e)))?;
+        .map_err(|e| AppError::new(format!("Failed to call screencapture: {e}")))?;
 
     if !output.status.success() {
         println!("Screenshot cancelled or failed");
@@ -811,10 +811,10 @@ fn handle_screenshot_add(
 
                     match save_account(&final_name, &secret, file_path) {
                         Ok(()) => {
-                            println!("Successfully added account: {}", final_name);
+                            println!("Successfully added account: {final_name}");
                         }
                         Err(e) => {
-                            println!("Failed to save account: {}", e);
+                            println!("Failed to save account: {e}");
                         }
                     }
                 } else {
@@ -822,13 +822,13 @@ fn handle_screenshot_add(
                 }
             } else {
                 println!("QR code does not appear to contain a valid TOTP setup");
-                println!("QR code contents: {}", qr_data);
+                println!("QR code contents: {qr_data}");
             }
         }
         Err(e) => {
             // Clean up temp file
             let _ = fs::remove_file(temp_path);
-            println!("Failed to decode QR code: {}", e);
+            println!("Failed to decode QR code: {e}");
         }
     }
 
@@ -848,9 +848,9 @@ fn decode_qr_from_image(image_path: &str) -> Result<String, AppError> {
 
     // Load the image
     let img = ImageReader::open(image_path)
-        .map_err(|e| AppError::new(format!("Failed to open image: {}", e)))?
+        .map_err(|e| AppError::new(format!("Failed to open image: {e}")))?
         .decode()
-        .map_err(|e| AppError::new(format!("Failed to decode image: {}", e)))?;
+        .map_err(|e| AppError::new(format!("Failed to decode image: {e}")))?;
 
     // Convert to luma (grayscale) for QR detection
     let luma_img = img.to_luma8();
@@ -867,7 +867,7 @@ fn decode_qr_from_image(image_path: &str) -> Result<String, AppError> {
     // Decode the first QR code found
     let (_, content) = grids[0]
         .decode()
-        .map_err(|e| AppError::new(format!("Failed to decode QR code: {:?}", e)))?;
+        .map_err(|e| AppError::new(format!("Failed to decode QR code: {e:?}")))?;
 
     Ok(content)
 }
