@@ -90,10 +90,11 @@ pub fn run_hotpot_with_input(args: &[&str], input: &str) -> Output {
         .spawn()
         .expect("Failed to spawn hotpot command");
 
-    if let Some(stdin) = child.stdin.as_mut() {
+    if let Some(mut stdin) = child.stdin.take() {
         stdin
             .write_all(input.as_bytes())
             .expect("Failed to write to stdin");
+        drop(stdin);
     }
 
     child
