@@ -297,7 +297,11 @@ fn main() {
 
     let result = match &cli.command {
         None => dashboard::show(file_path),
-        Some(Commands::Add { name, image, secret }) => {
+        Some(Commands::Add {
+            name,
+            image,
+            secret,
+        }) => {
             if let Some(image_path) = image {
                 // Load account from QR code image
                 match load_qr_code_from_image(image_path) {
