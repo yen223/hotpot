@@ -334,7 +334,7 @@ fn main() {
                 // Secret provided via flag - no interactive prompt needed
                 if let Some(account_name) = name {
                     save_account(account_name, secret_value, file_path)
-                        .map(|_| println!("Added account: {}", account_name))
+                        .map(|_| println!("Added account: {account_name}"))
                 } else {
                     Err(AppError::new(
                         "Account name is required when using --secret",
