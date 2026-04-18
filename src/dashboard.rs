@@ -253,9 +253,7 @@ impl ScreenBuffer {
                 .saturating_sub(1), // right padding
         );
 
-        let line = format!(
-            " {display_name} {spacing}{code_str}{copied_indicator} "
-        );
+        let line = format!(" {display_name} {spacing}{code_str}{copied_indicator} ");
 
         if selected {
             if copied_indicator.is_empty() {
