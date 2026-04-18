@@ -64,20 +64,22 @@ fn test_code_command_with_nonexistent_file() {
 fn test_add_command_creates_new_file() {
     let ctx = TestContext::new(); // No file exists yet
 
-    let output = run_hotpot_with_input(
-        &[
-            "--file",
-            ctx.file_path().to_str().unwrap(),
-            "add",
-            "test-account",
-        ],
-        "JBSWY3DPEHPK3PXP\n",
-    );
+    // Use --secret flag to bypass rpassword's interactive prompt,
+    // which hangs on Windows CI (rpassword reads from console handle, not stdin)
+    let output = run_hotpot_command(&[
+        "--file",
+        ctx.file_path().to_str().unwrap(),
+        "add",
+        "test-account",
+        "--secret",
+        "JBSWY3DPEHPK3PXP",
+    ]);
 
-    // The add command might fail due to rpassword TTY issues, but let's check if file handling works
+    assert!(output.status.success(), "Add command should succeed");
+    assert!(ctx.file_path().exists(), "Account file should be created");
     assert!(
-        ctx.file_path().exists() || !output.status.success(),
-        "Either command succeeds and creates file, or fails due to TTY issues"
+        file_contains_account(ctx.file_path(), "test-account"),
+        "File should contain the added account"
     );
 }
 
