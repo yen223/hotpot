@@ -164,8 +164,8 @@ impl ScreenBuffer {
     fn render_header(&mut self, mode: &DashboardMode, name_buffer: &str) {
         let header = match mode {
             DashboardMode::List => "[F]ind [A]dd [D]elete [E]xport QR [Q]uit".to_string(),
-            DashboardMode::Search(query) => format!("Search (ESC to exit): {}_", query),
-            DashboardMode::Add => format!("Enter account name (ESC to cancel): {}_", name_buffer),
+            DashboardMode::Search(query) => format!("Search (ESC to exit): {query}_"),
+            DashboardMode::Add => format!("Enter account name (ESC to cancel): {name_buffer}_"),
             DashboardMode::AddMethod => {
                 if cfg!(target_os = "macos") {
                     "Choose add method: [S]creenshot [M]anual (ESC to cancel)".to_string()
@@ -254,8 +254,7 @@ impl ScreenBuffer {
         );
 
         let line = format!(
-            " {} {}{}{} ",
-            display_name, spacing, code_str, copied_indicator
+            " {display_name} {spacing}{code_str}{copied_indicator} "
         );
 
         if selected {
@@ -650,7 +649,7 @@ fn handle_add_mode(
     if let Ok(secret) = prompt_password("Enter the Base32 secret: ")
         && let Ok(()) = save_account(name, &secret, file_path)
     {
-        queue!(stdout, Print(format!("Added account: {}", name)))?;
+        queue!(stdout, Print(format!("Added account: {name}")))?;
     }
 
     restore_dashboard_state(stdout)?;
@@ -713,7 +712,7 @@ fn copy_code_to_clipboard(
     if let Ok(code) = generate_totp(account, duration)
         && let Ok(mut clipboard) = Clipboard::new()
     {
-        let _ = clipboard.set_text(format!("{}", code));
+        let _ = clipboard.set_text(format!("{code}"));
         copied_state.mark_copied(&account.name);
     }
     Ok(())
@@ -730,17 +729,17 @@ fn handle_export_qr(
     // Generate the otpauth URI
     let uri = account.generate_uri();
     println!("QR Code for {}", account.name);
-    println!("\nGenerated URI: {}\n", uri);
+    println!("\nGenerated URI: {uri}\n");
 
     // Generate and display QR code
     let code =
-        QrCode::new(uri.as_bytes()).map_err(|e| AppError::new(format!("QR code error: {}", e)))?;
+        QrCode::new(uri.as_bytes()).map_err(|e| AppError::new(format!("QR code error: {e}")))?;
     let qr_string = code
         .render::<unicode::Dense1x2>()
         .dark_color(unicode::Dense1x2::Light)
         .light_color(unicode::Dense1x2::Dark)
         .build();
-    println!("{}\n", qr_string);
+    println!("{qr_string}\n");
     println!("Press Enter to return to dashboard...");
 
     // Wait for Enter key
