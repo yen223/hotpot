@@ -37,6 +37,9 @@ enum Commands {
         /// Load account from QR code image instead of prompting for secret
         #[arg(long, value_name = "IMAGE_PATH")]
         image: Option<String>,
+        /// Provide the secret directly instead of prompting (useful for scripting)
+        #[arg(long)]
+        secret: Option<String>,
     },
     /// Generate code for an account
     Code {
@@ -294,7 +297,7 @@ fn main() {
 
     let result = match &cli.command {
         None => dashboard::show(file_path),
-        Some(Commands::Add { name, image }) => {
+        Some(Commands::Add { name, image, secret }) => {
             if let Some(image_path) = image {
                 // Load account from QR code image
                 match load_qr_code_from_image(image_path) {
@@ -322,6 +325,16 @@ fn main() {
                         }
                     }
                     Err(e) => Err(e),
+                }
+            } else if let Some(secret_value) = secret {
+                // Secret provided via flag - no interactive prompt needed
+                if let Some(account_name) = name {
+                    save_account(account_name, secret_value, file_path)
+                        .map(|_| println!("Added account: {}", account_name))
+                } else {
+                    Err(AppError::new(
+                        "Account name is required when using --secret",
+                    ))
                 }
             } else {
                 // Traditional secret input - name is required
