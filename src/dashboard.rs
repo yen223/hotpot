@@ -793,10 +793,7 @@ fn handle_screenshot_add(
             if let Some(extracted_name) = extract_account_from_otpauth(&qr_data) {
                 if let Some(secret) = extract_secret_from_otpauth(&qr_data) {
                     // Prompt for account name with default
-                    println!(
-                        "Enter account name (press Enter for default) [{}]: ",
-                        extracted_name
-                    );
+                    println!("Enter account name (press Enter for default) [{extracted_name}]: ");
                     let mut input = String::new();
                     io::stdin().read_line(&mut input)?;
 
