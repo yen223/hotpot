@@ -90,10 +90,11 @@ pub fn run_hotpot_with_input(args: &[&str], input: &str) -> Output {
         .spawn()
         .expect("Failed to spawn hotpot command");
 
-    if let Some(stdin) = child.stdin.as_mut() {
+    if let Some(mut stdin) = child.stdin.take() {
         stdin
             .write_all(input.as_bytes())
             .expect("Failed to write to stdin");
+        drop(stdin);
     }
 
     child
@@ -109,16 +110,10 @@ pub fn assert_totp_valid(output: &str) {
         output.trim()
     };
 
-    assert_eq!(
-        code.len(),
-        6,
-        "TOTP code should be 6 digits, got: '{}'",
-        code
-    );
+    assert_eq!(code.len(), 6, "TOTP code should be 6 digits, got: '{code}'");
     assert!(
         code.chars().all(|c| c.is_ascii_digit()),
-        "TOTP code should only contain digits, got: '{}'",
-        code
+        "TOTP code should only contain digits, got: '{code}'"
     );
 }
 

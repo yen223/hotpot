@@ -164,8 +164,8 @@ impl ScreenBuffer {
     fn render_header(&mut self, mode: &DashboardMode, name_buffer: &str) {
         let header = match mode {
             DashboardMode::List => "[F]ind [A]dd [D]elete [E]xport QR [Q]uit".to_string(),
-            DashboardMode::Search(query) => format!("Search (ESC to exit): {}_", query),
-            DashboardMode::Add => format!("Enter account name (ESC to cancel): {}_", name_buffer),
+            DashboardMode::Search(query) => format!("Search (ESC to exit): {query}_"),
+            DashboardMode::Add => format!("Enter account name (ESC to cancel): {name_buffer}_"),
             DashboardMode::AddMethod => {
                 if cfg!(target_os = "macos") {
                     "Choose add method: [S]creenshot [M]anual (ESC to cancel)".to_string()
@@ -253,10 +253,7 @@ impl ScreenBuffer {
                 .saturating_sub(1), // right padding
         );
 
-        let line = format!(
-            " {} {}{}{} ",
-            display_name, spacing, code_str, copied_indicator
-        );
+        let line = format!(" {display_name} {spacing}{code_str}{copied_indicator} ");
 
         if selected {
             if copied_indicator.is_empty() {
@@ -299,10 +296,10 @@ impl CopiedState {
     }
 
     fn is_recently_copied(&self, account_name: &str) -> bool {
-        if let Some(&copied_time) = self.accounts.get(account_name) {
-            if let Ok(elapsed) = SystemTime::now().duration_since(copied_time) {
-                return elapsed < Duration::from_secs(2); // Show "Copied!" for 2 seconds
-            }
+        if let Some(&copied_time) = self.accounts.get(account_name)
+            && let Ok(elapsed) = SystemTime::now().duration_since(copied_time)
+        {
+            return elapsed < Duration::from_secs(2); // Show "Copied!" for 2 seconds
         }
         false
     }
@@ -491,10 +488,8 @@ fn handle_input(
             },
             Event::Key(KeyEvent {
                 code: KeyCode::Up, ..
-            }) => {
-                if *selected > 0 {
-                    *selected -= 1;
-                }
+            }) if *selected > 0 => {
+                *selected -= 1;
             }
             Event::Key(KeyEvent {
                 code: KeyCode::Down,
@@ -649,10 +644,10 @@ fn handle_add_mode(
 ) -> Result<InputResult, AppError> {
     setup_terminal_for_input(stdout)?;
 
-    if let Ok(secret) = prompt_password("Enter the Base32 secret: ") {
-        if let Ok(()) = save_account(name, &secret, file_path) {
-            queue!(stdout, Print(format!("Added account: {}", name)))?;
-        }
+    if let Ok(secret) = prompt_password("Enter the Base32 secret: ")
+        && let Ok(()) = save_account(name, &secret, file_path)
+    {
+        queue!(stdout, Print(format!("Added account: {name}")))?;
     }
 
     restore_dashboard_state(stdout)?;
@@ -712,11 +707,11 @@ fn copy_code_to_clipboard(
     let duration = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("Time went backwards");
-    if let Ok(code) = generate_totp(account, duration) {
-        if let Ok(mut clipboard) = Clipboard::new() {
-            let _ = clipboard.set_text(format!("{}", code));
-            copied_state.mark_copied(&account.name);
-        }
+    if let Ok(code) = generate_totp(account, duration)
+        && let Ok(mut clipboard) = Clipboard::new()
+    {
+        let _ = clipboard.set_text(format!("{code}"));
+        copied_state.mark_copied(&account.name);
     }
     Ok(())
 }
@@ -732,17 +727,17 @@ fn handle_export_qr(
     // Generate the otpauth URI
     let uri = account.generate_uri();
     println!("QR Code for {}", account.name);
-    println!("\nGenerated URI: {}\n", uri);
+    println!("\nGenerated URI: {uri}\n");
 
     // Generate and display QR code
     let code =
-        QrCode::new(uri.as_bytes()).map_err(|e| AppError::new(format!("QR code error: {}", e)))?;
+        QrCode::new(uri.as_bytes()).map_err(|e| AppError::new(format!("QR code error: {e}")))?;
     let qr_string = code
         .render::<unicode::Dense1x2>()
         .dark_color(unicode::Dense1x2::Light)
         .light_color(unicode::Dense1x2::Dark)
         .build();
-    println!("{}\n", qr_string);
+    println!("{qr_string}\n");
     println!("Press Enter to return to dashboard...");
 
     // Wait for Enter key
@@ -776,7 +771,7 @@ fn handle_screenshot_add(
         .arg("-r") // No drop shadow
         .arg(temp_path)
         .output()
-        .map_err(|e| AppError::new(format!("Failed to call screencapture: {}", e)))?;
+        .map_err(|e| AppError::new(format!("Failed to call screencapture: {e}")))?;
 
     if !output.status.success() {
         println!("Screenshot cancelled or failed");
@@ -798,10 +793,7 @@ fn handle_screenshot_add(
             if let Some(extracted_name) = extract_account_from_otpauth(&qr_data) {
                 if let Some(secret) = extract_secret_from_otpauth(&qr_data) {
                     // Prompt for account name with default
-                    println!(
-                        "Enter account name (press Enter for default) [{}]: ",
-                        extracted_name
-                    );
+                    println!("Enter account name (press Enter for default) [{extracted_name}]: ");
                     let mut input = String::new();
                     io::stdin().read_line(&mut input)?;
 
@@ -814,10 +806,10 @@ fn handle_screenshot_add(
 
                     match save_account(&final_name, &secret, file_path) {
                         Ok(()) => {
-                            println!("Successfully added account: {}", final_name);
+                            println!("Successfully added account: {final_name}");
                         }
                         Err(e) => {
-                            println!("Failed to save account: {}", e);
+                            println!("Failed to save account: {e}");
                         }
                     }
                 } else {
@@ -825,13 +817,13 @@ fn handle_screenshot_add(
                 }
             } else {
                 println!("QR code does not appear to contain a valid TOTP setup");
-                println!("QR code contents: {}", qr_data);
+                println!("QR code contents: {qr_data}");
             }
         }
         Err(e) => {
             // Clean up temp file
             let _ = fs::remove_file(temp_path);
-            println!("Failed to decode QR code: {}", e);
+            println!("Failed to decode QR code: {e}");
         }
     }
 
@@ -851,9 +843,9 @@ fn decode_qr_from_image(image_path: &str) -> Result<String, AppError> {
 
     // Load the image
     let img = ImageReader::open(image_path)
-        .map_err(|e| AppError::new(format!("Failed to open image: {}", e)))?
+        .map_err(|e| AppError::new(format!("Failed to open image: {e}")))?
         .decode()
-        .map_err(|e| AppError::new(format!("Failed to decode image: {}", e)))?;
+        .map_err(|e| AppError::new(format!("Failed to decode image: {e}")))?;
 
     // Convert to luma (grayscale) for QR detection
     let luma_img = img.to_luma8();
@@ -870,7 +862,7 @@ fn decode_qr_from_image(image_path: &str) -> Result<String, AppError> {
     // Decode the first QR code found
     let (_, content) = grids[0]
         .decode()
-        .map_err(|e| AppError::new(format!("Failed to decode QR code: {:?}", e)))?;
+        .map_err(|e| AppError::new(format!("Failed to decode QR code: {e:?}")))?;
 
     Ok(content)
 }
