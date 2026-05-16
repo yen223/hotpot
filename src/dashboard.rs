@@ -710,7 +710,7 @@ fn copy_code_to_clipboard(
     if let Ok(code) = generate_totp(account, duration)
         && let Ok(mut clipboard) = Clipboard::new()
     {
-        let _ = clipboard.set_text(format!("{code}"));
+        let _ = clipboard.set_text(format!("{:0width$}", code, width = account.digits as usize));
         copied_state.mark_copied(&account.name);
     }
     Ok(())
