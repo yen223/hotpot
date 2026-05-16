@@ -234,7 +234,7 @@ impl ScreenBuffer {
         };
 
         // Always reserve space for " Copied!" to keep codes aligned
-        let code_str = format!("{:0width$}", code, width = account.digits as usize);
+        let code_str = account.format_code(code);
         let max_name_len =
             (max_width as usize).saturating_sub(code_str.len() + copied_text.len() + 3); // 3 for padding
 
@@ -710,7 +710,7 @@ fn copy_code_to_clipboard(
     if let Ok(code) = generate_totp(account, duration)
         && let Ok(mut clipboard) = Clipboard::new()
     {
-        let _ = clipboard.set_text(format!("{code}"));
+        let _ = clipboard.set_text(account.format_code(code));
         copied_state.mark_copied(&account.name);
     }
     Ok(())

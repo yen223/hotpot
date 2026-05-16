@@ -337,12 +337,7 @@ fn main() {
                 .duration_since(UNIX_EPOCH)
                 .expect("System time is before Unix epoch");
             generate_totp(&account, duration).map(|code| {
-                println!(
-                    "Code for {}: {:0width$}",
-                    name,
-                    code,
-                    width = account.digits as usize
-                );
+                println!("Code for {}: {}", name, account.format_code(code));
             })
         }),
         Some(Commands::Delete { name }) => {
