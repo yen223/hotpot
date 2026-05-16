@@ -57,6 +57,11 @@ impl Account {
         }
     }
 
+    /// Format a raw TOTP code as a zero-padded string with the correct number of digits.
+    pub fn format_code(&self, code: u32) -> String {
+        format!("{:0width$}", code, width = self.digits as usize)
+    }
+
     pub fn generate_uri(&self) -> String {
         let label = format!("{}:{}", self.issuer, self.name);
         let digits = self.digits.to_string();
