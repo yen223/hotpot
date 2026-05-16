@@ -838,33 +838,7 @@ fn handle_screenshot_add(
 
 #[cfg(target_os = "macos")]
 fn decode_qr_from_image(image_path: &str) -> Result<String, AppError> {
-    use image::ImageReader;
-    use rqrr::PreparedImage;
-
-    // Load the image
-    let img = ImageReader::open(image_path)
-        .map_err(|e| AppError::new(format!("Failed to open image: {e}")))?
-        .decode()
-        .map_err(|e| AppError::new(format!("Failed to decode image: {e}")))?;
-
-    // Convert to luma (grayscale) for QR detection
-    let luma_img = img.to_luma8();
-
-    // Prepare image for QR detection
-    let mut prepared = PreparedImage::prepare(luma_img);
-
-    // Try to find and decode QR codes
-    let grids = prepared.detect_grids();
-    if grids.is_empty() {
-        return Err(AppError::new("No QR code found in image".to_string()));
-    }
-
-    // Decode the first QR code found
-    let (_, content) = grids[0]
-        .decode()
-        .map_err(|e| AppError::new(format!("Failed to decode QR code: {e:?}")))?;
-
-    Ok(content)
+    crate::qr::decode_qr_from_image(image_path)
 }
 
 #[cfg(target_os = "macos")]
