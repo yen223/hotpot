@@ -850,6 +850,18 @@ fn decode_qr_from_image(image_path: &str) -> Result<String, AppError> {
     // Convert to luma (grayscale) for QR detection
     let luma_img = img.to_luma8();
 
+    // Upscale small images so rqrr can detect QR patterns more reliably
+    let luma_img = if luma_img.width() < 1000 || luma_img.height() < 1000 {
+        image::imageops::resize(
+            &luma_img,
+            luma_img.width() * 3,
+            luma_img.height() * 3,
+            image::imageops::FilterType::Nearest,
+        )
+    } else {
+        luma_img
+    };
+
     // Prepare image for QR detection
     let mut prepared = PreparedImage::prepare(luma_img);
 
